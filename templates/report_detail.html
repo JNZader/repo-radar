@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{{ filename }} — repo-radar{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="/reports" class="text-gray-400 hover:text-white transition-colors">
+                &larr; Back to Reports
+            </a>
+            <h1 class="text-2xl font-bold text-white">{{ filename }}</h1>
+        </div>
+        <span class="inline-flex items-center rounded-full bg-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-200">{{ format }}</span>
+    </div>
+
+    <div class="rounded-lg border border-gray-700 bg-gray-800 overflow-hidden">
+        {% if is_json %}
+        <pre class="p-4 text-sm text-gray-200 font-mono overflow-x-auto whitespace-pre">{{ content }}</pre>
+        {% else %}
+        <div class="p-4 text-sm text-gray-200 whitespace-pre-wrap font-mono">{{ content }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

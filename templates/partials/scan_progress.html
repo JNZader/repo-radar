@@ -1,0 +1,14 @@
+<div id="scan-progress" class="hidden rounded-lg border border-gray-700 bg-gray-800 p-4">
+    <div class="mb-2 flex items-center justify-between">
+        <span id="scan-stage" class="text-sm font-medium text-gray-300">Initializing...</span>
+        <span id="scan-percent" class="text-sm font-medium text-indigo-400">0%</span>
+    </div>
+    <div class="h-2 w-full overflow-hidden rounded-full bg-gray-700">
+        <div
+            id="scan-bar"
+            class="h-full rounded-full bg-blue-600 transition-all duration-300 ease-out"
+            style="width: 0%"
+        ></div>
+    </div>
+    <p id="scan-message" class="mt-2 text-xs text-gray-500"></p>
+</div>

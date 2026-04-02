@@ -7,7 +7,7 @@ pub mod templates;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::config::AppConfig;
@@ -28,7 +28,13 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(handlers::dashboard::index))
+        .route("/config", get(handlers::pages::config_page))
+        .route("/api/config", get(handlers::pages::config_json))
         .route("/api/results", get(handlers::api::get_results))
+        .route("/api/scan", post(handlers::scan::start_scan))
+        .route("/api/scan/events", get(handlers::scan::scan_events))
+        .route("/reports", get(handlers::pages::reports_page))
+        .route("/reports/{id}", get(handlers::pages::report_detail))
         .route("/static/{*path}", get(assets::serve_static))
         .with_state(state)
 }
