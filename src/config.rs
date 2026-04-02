@@ -254,3 +254,159 @@ pub fn write_default_config(path: &Path) -> Result<(), PipelineError> {
         .map_err(|e| PipelineError::Config(format!("writing {}: {e}", path.display())))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_toml_parses() {
+        let toml_str = default_config();
+        let config: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config.feeds.len(), 1);
+        assert_eq!(config.filter.min_stars, 10);
+        assert!(config.filter.exclude_forks);
+        assert!(config.filter.exclude_archived);
+        assert_eq!(config.analyzer.timeout_secs, 60);
+        assert_eq!(config.reporter.format, "markdown");
+    }
+
+    #[test]
+    fn minimal_config_only_required_fields() {
+        let toml_str = "";
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.feeds.is_empty());
+        assert_eq!(config.filter.min_stars, default_min_stars());
+        assert!(config.crossref.own_repos.is_empty());
+    }
+
+    #[test]
+    fn config_with_all_fields() {
+        let toml_str = r#"
+[[feeds]]
+url = "https://feed1.example.com/rss"
+name = "Feed One"
+
+[[feeds]]
+url = "https://feed2.example.com/rss"
+
+[filter]
+min_stars = 100
+languages = ["Rust", "Go"]
+topics = ["cli"]
+exclude_forks = false
+exclude_archived = false
+
+[analyzer]
+repoforge_path = "/usr/bin/repoforge"
+timeout_secs = 120
+llm_model = "gpt-4o"
+
+[crossref]
+own_repos = ["/data/repos.json"]
+
+[reporter]
+output_dir = "/tmp/reports"
+format = "json"
+
+[general]
+data_dir = "/tmp/data"
+log_level = "debug"
+backfill_batch_size = 100
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.feeds.len(), 2);
+        assert_eq!(config.feeds[0].name.as_deref(), Some("Feed One"));
+        assert!(config.feeds[1].name.is_none());
+        assert_eq!(config.filter.min_stars, 100);
+        assert_eq!(config.filter.languages, vec!["Rust", "Go"]);
+        assert!(!config.filter.exclude_forks);
+        assert_eq!(config.analyzer.timeout_secs, 120);
+        assert_eq!(config.analyzer.llm_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(config.crossref.own_repos.len(), 1);
+        assert_eq!(config.reporter.format, "json");
+        assert_eq!(config.general.log_level, "debug");
+        assert_eq!(config.general.backfill_batch_size, 100);
+    }
+
+    #[test]
+    fn load_config_nonexistent_path_returns_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent.toml");
+        let config = load_config(Some(&path)).unwrap();
+        assert!(config.feeds.is_empty());
+        assert_eq!(config.filter.min_stars, default_min_stars());
+    }
+
+    #[test]
+    fn load_config_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[feeds]]
+url = "https://example.com/rss"
+
+[filter]
+min_stars = 50
+"#,
+        )
+        .unwrap();
+
+        let config = load_config(Some(&path)).unwrap();
+        assert_eq!(config.feeds.len(), 1);
+        assert_eq!(config.filter.min_stars, 50);
+    }
+
+    #[test]
+    fn load_config_invalid_toml_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.toml");
+        std::fs::write(&path, "not valid toml {{{{").unwrap();
+
+        let result = load_config(Some(&path));
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("parsing"));
+    }
+
+    #[test]
+    fn env_var_overlay_github_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "").unwrap();
+
+        // SAFETY: test runs single-threaded; no other threads read this env var concurrently.
+        unsafe { std::env::set_var("REPO_RADAR_GITHUB_TOKEN", "test-token-123") };
+        let config = load_config(Some(&path)).unwrap();
+        unsafe { std::env::remove_var("REPO_RADAR_GITHUB_TOKEN") };
+
+        assert_eq!(config.general.github_token.as_deref(), Some("test-token-123"));
+    }
+
+    #[test]
+    fn env_var_overlay_llm_api_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "").unwrap();
+
+        // SAFETY: test runs single-threaded; no other threads read this env var concurrently.
+        unsafe { std::env::set_var("REPO_RADAR_LLM_API_KEY", "sk-test-key") };
+        let config = load_config(Some(&path)).unwrap();
+        unsafe { std::env::remove_var("REPO_RADAR_LLM_API_KEY") };
+
+        assert_eq!(config.analyzer.llm_api_key.as_deref(), Some("sk-test-key"));
+    }
+
+    #[test]
+    fn write_default_config_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("config.toml");
+        write_default_config(&path).unwrap();
+
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("repo-radar configuration"));
+    }
+}
