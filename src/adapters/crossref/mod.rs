@@ -1,10 +1,14 @@
 #![allow(clippy::manual_async_fn)] // Trait uses RPITIT pattern, impls must match
 
+pub mod github_crossref;
+
 use std::future::Future;
 
 use crate::domain::crossref::CrossRef;
 use crate::domain::model::{AnalysisResult, CrossRefResult};
 use crate::infra::error::CrossRefError;
+
+use self::github_crossref::GitHubCrossRef;
 
 /// A no-op cross-referencer that returns an empty result list.
 #[derive(Debug, Clone)]
@@ -19,6 +23,7 @@ impl CrossRef for NoopCrossRef {
 /// Enum dispatch wrapper for all cross-reference implementations.
 pub enum CrossRefAdapter {
     Noop(NoopCrossRef),
+    GitHub(Box<GitHubCrossRef>),
 }
 
 impl CrossRef for CrossRefAdapter {
@@ -26,6 +31,7 @@ impl CrossRef for CrossRefAdapter {
         async move {
             match self {
                 Self::Noop(x) => x.cross_reference(results).await,
+                Self::GitHub(x) => x.cross_reference(results).await,
             }
         }
     }

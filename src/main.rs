@@ -4,8 +4,9 @@ use owo_colors::OwoColorize;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer};
+use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer, RepoforgeAnalyzer};
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
+use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
 use repo_radar::adapters::reporter::{NoopReporter, ReporterAdapter};
 use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
@@ -140,8 +141,27 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
         FilterAdapter::Noop(NoopFilter)
     };
 
-    let analyzer = AnalyzerAdapter::Noop(NoopAnalyzer);
-    let crossref = CrossRefAdapter::Noop(NoopCrossRef);
+    // Analyzer: RepoForge if path configured, otherwise Noop
+    let analyzer = if let Some(ref repoforge_path) = config.analyzer.repoforge_path {
+        AnalyzerAdapter::Repoforge(RepoforgeAnalyzer::new(
+            repoforge_path.clone(),
+            config.analyzer.timeout_secs,
+        ))
+    } else {
+        AnalyzerAdapter::Noop(NoopAnalyzer)
+    };
+
+    // CrossRef: GitHub if username configured, otherwise Noop
+    let crossref = if let Some(ref username) = config.crossref.github_username {
+        let gh_crossref = GitHubCrossRef::new(
+            username.clone(),
+            config.general.github_token.as_deref(),
+        )
+        .into_diagnostic()?;
+        CrossRefAdapter::GitHub(Box::new(gh_crossref))
+    } else {
+        CrossRefAdapter::Noop(NoopCrossRef)
+    };
     let reporter = ReporterAdapter::Noop(NoopReporter);
 
     let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen);

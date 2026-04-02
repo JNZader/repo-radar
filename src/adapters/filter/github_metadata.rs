@@ -34,8 +34,8 @@ impl GitHubMetadataFilter {
     }
 
     /// Create from an existing octocrab instance (useful for testing with custom base URL).
-    #[cfg(test)]
-    pub(crate) fn with_octocrab(config: FilterConfig, octocrab: octocrab::Octocrab) -> Self {
+    #[doc(hidden)]
+    pub fn with_octocrab(config: FilterConfig, octocrab: octocrab::Octocrab) -> Self {
         Self { config, octocrab }
     }
 }

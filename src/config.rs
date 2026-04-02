@@ -84,6 +84,9 @@ pub struct CrossRefConfig {
     /// Paths to repoforge JSON exports of the user's own repos.
     #[serde(default)]
     pub own_repos: Vec<PathBuf>,
+    /// Loaded from `REPO_RADAR_GITHUB_USERNAME` env var at runtime.
+    #[serde(skip)]
+    pub github_username: Option<String>,
 }
 
 /// Reporter output settings.
@@ -187,6 +190,9 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
     if let Ok(key) = std::env::var("REPO_RADAR_LLM_API_KEY") {
         config.analyzer.llm_api_key = Some(key);
     }
+    if let Ok(username) = std::env::var("REPO_RADAR_GITHUB_USERNAME") {
+        config.crossref.github_username = Some(username);
+    }
 
     Ok(config)
 }
@@ -224,6 +230,7 @@ timeout_secs = 60
 # Cross-reference with your own repos
 [crossref]
 own_repos = []          # paths to repoforge JSON exports
+# GitHub username loaded from REPO_RADAR_GITHUB_USERNAME env var
 
 # Reporter output
 [reporter]
@@ -397,6 +404,41 @@ min_stars = 50
         unsafe { std::env::remove_var("REPO_RADAR_LLM_API_KEY") };
 
         assert_eq!(config.analyzer.llm_api_key.as_deref(), Some("sk-test-key"));
+    }
+
+    #[test]
+    fn env_var_overlay_github_username() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "").unwrap();
+
+        // SAFETY: test runs single-threaded; no other threads read this env var concurrently.
+        unsafe { std::env::set_var("REPO_RADAR_GITHUB_USERNAME", "octocat") };
+        let config = load_config(Some(&path)).unwrap();
+        unsafe { std::env::remove_var("REPO_RADAR_GITHUB_USERNAME") };
+
+        assert_eq!(
+            config.crossref.github_username.as_deref(),
+            Some("octocat"),
+        );
+    }
+
+    #[test]
+    fn crossref_config_serde_round_trip() {
+        let toml_str = r#"
+[crossref]
+own_repos = ["/data/my-repos.json", "/data/other.json"]
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.crossref.own_repos.len(), 2);
+        // github_username is #[serde(skip)], so it must be None after deserialization
+        assert!(config.crossref.github_username.is_none());
+
+        // Re-serialize and deserialize to confirm round-trip stability
+        let serialized = toml::to_string(&config).unwrap();
+        let roundtrip: AppConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(roundtrip.crossref.own_repos.len(), 2);
+        assert!(roundtrip.crossref.github_username.is_none());
     }
 
     #[test]

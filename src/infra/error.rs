@@ -28,6 +28,8 @@ pub enum AnalyzerError {
     Timeout { repo: String },
     #[error("LLM API error: {0}")]
     LlmError(String),
+    #[error("failed to parse analysis: {0}")]
+    ParseFailed(String),
 }
 
 #[derive(Debug, Error)]
@@ -36,6 +38,8 @@ pub enum CrossRefError {
     IndexLoadFailed(String),
     #[error("analysis failed: {0}")]
     AnalysisFailed(String),
+    #[error("network error: {0}")]
+    Network(String),
 }
 
 #[derive(Debug, Error)]
@@ -127,6 +131,18 @@ mod tests {
     fn analyzer_error_llm_display() {
         let err = AnalyzerError::LlmError("rate limited".into());
         assert_eq!(err.to_string(), "LLM API error: rate limited");
+    }
+
+    #[test]
+    fn analyzer_error_parse_failed_display() {
+        let err = AnalyzerError::ParseFailed("invalid JSON".into());
+        assert_eq!(err.to_string(), "failed to parse analysis: invalid JSON");
+    }
+
+    #[test]
+    fn crossref_error_network_display() {
+        let err = CrossRefError::Network("connection refused".into());
+        assert_eq!(err.to_string(), "network error: connection refused");
     }
 
     #[test]
