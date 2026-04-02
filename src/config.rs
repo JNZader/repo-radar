@@ -265,6 +265,7 @@ pub fn write_default_config(path: &Path) -> Result<(), PipelineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn default_config_toml_parses() {
@@ -379,6 +380,7 @@ min_stars = 50
     }
 
     #[test]
+    #[serial]
     fn env_var_overlay_github_token() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -393,6 +395,7 @@ min_stars = 50
     }
 
     #[test]
+    #[serial]
     fn env_var_overlay_llm_api_key() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -407,6 +410,7 @@ min_stars = 50
     }
 
     #[test]
+    #[serial]
     fn env_var_overlay_github_username() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
@@ -450,5 +454,80 @@ own_repos = ["/data/my-repos.json", "/data/other.json"]
         assert!(path.exists());
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("repo-radar configuration"));
+    }
+
+    #[test]
+    fn config_empty_feeds_is_valid() {
+        let toml_str = r#"
+[filter]
+min_stars = 5
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.feeds.is_empty());
+    }
+
+    #[test]
+    fn config_filter_defaults_are_sensible() {
+        let config = FilterConfig::default();
+        assert_eq!(config.min_stars, 10);
+        assert!(config.exclude_forks);
+        assert!(config.exclude_archived);
+    }
+
+    #[test]
+    fn config_reporter_default_format_is_markdown() {
+        let config = ReporterConfig::default();
+        assert_eq!(config.format, "markdown");
+    }
+
+    #[test]
+    fn config_reporter_default_output_dir() {
+        let config = ReporterConfig::default();
+        assert_eq!(config.output_dir, PathBuf::from("./output"));
+    }
+
+    #[test]
+    fn config_analyzer_default_timeout() {
+        // AnalyzerConfig derives Default (timeout_secs=0), but serde default gives 60
+        let toml_str = "[analyzer]\n";
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.analyzer.timeout_secs, 60);
+    }
+
+    #[test]
+    #[serial]
+    fn env_vars_dont_persist_to_saved_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("source.toml");
+        let dst_path = dir.path().join("saved.toml");
+        std::fs::write(&src_path, "").unwrap();
+
+        // SAFETY: test runs single-threaded; no other threads read these env vars concurrently.
+        unsafe { std::env::set_var("REPO_RADAR_GITHUB_TOKEN", "secret-token") };
+        unsafe { std::env::set_var("REPO_RADAR_LLM_API_KEY", "secret-key") };
+        unsafe { std::env::set_var("REPO_RADAR_GITHUB_USERNAME", "secret-user") };
+
+        let config = load_config(Some(&src_path)).unwrap();
+        assert_eq!(config.general.github_token.as_deref(), Some("secret-token"));
+
+        // Serialize to TOML and write — skip fields should NOT appear
+        let serialized = toml::to_string(&config).unwrap();
+        std::fs::write(&dst_path, &serialized).unwrap();
+
+        unsafe { std::env::remove_var("REPO_RADAR_GITHUB_TOKEN") };
+        unsafe { std::env::remove_var("REPO_RADAR_LLM_API_KEY") };
+        unsafe { std::env::remove_var("REPO_RADAR_GITHUB_USERNAME") };
+
+        // Reload from saved file WITHOUT env vars
+        let reloaded = load_config(Some(&dst_path)).unwrap();
+        assert!(reloaded.general.github_token.is_none());
+        assert!(reloaded.analyzer.llm_api_key.is_none());
+        assert!(reloaded.crossref.github_username.is_none());
+
+        // Also verify the raw TOML doesn't contain the secrets
+        let raw = std::fs::read_to_string(&dst_path).unwrap();
+        assert!(!raw.contains("secret-token"));
+        assert!(!raw.contains("secret-key"));
+        assert!(!raw.contains("secret-user"));
     }
 }

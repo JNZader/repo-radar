@@ -226,4 +226,77 @@ mod tests {
         let err = PipelineError::SeenStore("corrupt".into());
         assert_eq!(err.to_string(), "seen store error: corrupt");
     }
+
+    #[tokio::test]
+    async fn source_error_network_from_reqwest() {
+        let reqwest_err = reqwest::get("http://[::1]:1")
+            .await
+            .expect_err("should fail with connection error");
+        let source_err = SourceError::from(reqwest_err);
+        let display = source_err.to_string();
+        assert!(display.contains("network error"));
+        assert!(!display.is_empty());
+    }
+
+    #[tokio::test]
+    async fn filter_error_network_from_reqwest() {
+        let reqwest_err = reqwest::get("http://[::1]:1")
+            .await
+            .expect_err("should fail with connection error");
+        let filter_err = FilterError::from(reqwest_err);
+        let display = filter_err.to_string();
+        assert!(display.contains("network error"));
+        assert!(!display.is_empty());
+    }
+
+    #[test]
+    fn reporter_error_write_failed_from_io() {
+        let kinds = [
+            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::PermissionDenied,
+        ];
+        for kind in kinds {
+            let io_err = std::io::Error::new(kind, format!("{kind:?} error"));
+            let reporter_err = ReporterError::from(io_err);
+            let display = reporter_err.to_string();
+            assert!(display.contains("failed to write report"), "kind={kind:?}");
+            assert!(!display.is_empty());
+        }
+    }
+
+    #[test]
+    fn pipeline_error_display_for_all_variants() {
+        let variants: Vec<PipelineError> = vec![
+            PipelineError::Source(SourceError::ParseFailed("p".into())),
+            PipelineError::Filter(FilterError::GitHubApi("g".into())),
+            PipelineError::Analyzer(AnalyzerError::LlmError("l".into())),
+            PipelineError::CrossRef(CrossRefError::AnalysisFailed("c".into())),
+            PipelineError::Reporter(ReporterError::TemplateFailed("r".into())),
+            PipelineError::Config("cfg".into()),
+            PipelineError::SeenStore("ss".into()),
+        ];
+
+        let displays: Vec<String> = variants.iter().map(|v| v.to_string()).collect();
+
+        // All non-empty
+        for d in &displays {
+            assert!(!d.is_empty(), "display should not be empty: {d}");
+        }
+
+        // All distinct
+        let unique: std::collections::HashSet<&String> = displays.iter().collect();
+        assert_eq!(unique.len(), displays.len(), "all display strings should be distinct");
+    }
+
+    #[test]
+    fn error_types_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<SourceError>();
+        assert_send_sync::<FilterError>();
+        assert_send_sync::<AnalyzerError>();
+        assert_send_sync::<CrossRefError>();
+        assert_send_sync::<ReporterError>();
+        assert_send_sync::<PipelineError>();
+    }
 }

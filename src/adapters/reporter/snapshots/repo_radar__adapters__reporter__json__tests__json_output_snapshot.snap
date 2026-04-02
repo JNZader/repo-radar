@@ -1,0 +1,50 @@
+---
+source: src/adapters/reporter/json.rs
+expression: json
+---
+[
+  {
+    "analysis": {
+      "candidate": {
+        "entry": {
+          "title": "snapshot-tool",
+          "repo_url": "https://github.com/snapshot/tool",
+          "description": "A tool for snapshot testing",
+          "published": "2025-01-15T12:00:00Z",
+          "source_name": "GitHub Trending"
+        },
+        "stars": 1500,
+        "language": "Rust",
+        "topics": [
+          "testing",
+          "snapshot"
+        ],
+        "fork": false,
+        "archived": false,
+        "owner": "snapshot",
+        "repo_name": "tool"
+      },
+      "summary": "A powerful snapshot testing tool for Rust projects",
+      "key_features": [
+        "inline snapshots",
+        "redactions"
+      ],
+      "tech_stack": [
+        "Rust",
+        "serde"
+      ],
+      "relevance_score": 0.92
+    },
+    "matched_repos": [
+      {
+        "own_repo": "my-test-framework",
+        "relevance": 0.85,
+        "reason": "Both focus on testing infrastructure"
+      }
+    ],
+    "ideas": [
+      "Integrate snapshot testing into CI pipeline"
+    ],
+    "overall_relevance": 0.88
+  }
+]

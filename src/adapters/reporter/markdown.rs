@@ -117,6 +117,46 @@ mod tests {
 
     use crate::domain::model::{AnalysisResult, FeedEntry, RepoCandidate, RepoMatch};
 
+    #[test]
+    fn markdown_output_snapshot() {
+        use chrono::TimeZone;
+
+        let result = CrossRefResult {
+            analysis: AnalysisResult {
+                candidate: RepoCandidate {
+                    entry: FeedEntry {
+                        title: "snapshot-tool".into(),
+                        repo_url: Url::parse("https://github.com/snapshot/tool").unwrap(),
+                        description: Some("A tool for snapshot testing".into()),
+                        published: Some(Utc.with_ymd_and_hms(2025, 1, 15, 12, 0, 0).unwrap()),
+                        source_name: "GitHub Trending".into(),
+                    },
+                    stars: 1500,
+                    language: Some("Rust".into()),
+                    topics: vec!["testing".into(), "snapshot".into()],
+                    fork: false,
+                    archived: false,
+                    owner: "snapshot".into(),
+                    repo_name: "tool".into(),
+                },
+                summary: "A powerful snapshot testing tool for Rust projects".into(),
+                key_features: vec!["inline snapshots".into(), "redactions".into()],
+                tech_stack: vec!["Rust".into(), "serde".into()],
+                relevance_score: 0.92,
+            },
+            matched_repos: vec![RepoMatch {
+                own_repo: "my-test-framework".into(),
+                relevance: 0.85,
+                reason: "Both focus on testing infrastructure".into(),
+            }],
+            ideas: vec!["Integrate snapshot testing into CI pipeline".into()],
+            overall_relevance: 0.88,
+        };
+
+        let markdown = MarkdownReporter::format_entry(&result);
+        insta::assert_snapshot!(markdown);
+    }
+
     fn sample_crossref_result(title: &str, relevance: f64) -> CrossRefResult {
         CrossRefResult {
             analysis: AnalysisResult {

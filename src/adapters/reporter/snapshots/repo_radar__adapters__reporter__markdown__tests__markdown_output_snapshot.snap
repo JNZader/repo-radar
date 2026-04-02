@@ -1,0 +1,31 @@
+---
+source: src/adapters/reporter/markdown.rs
+expression: markdown
+---
+## snapshot-tool (relevance: 88%)
+
+**URL:** https://github.com/snapshot/tool
+**Stars:** 1500 | **Language:** Rust
+**Topics:** testing, snapshot
+
+### Summary
+
+A powerful snapshot testing tool for Rust projects
+
+### Key Features
+
+- inline snapshots
+- redactions
+
+### Tech Stack
+
+- Rust
+- serde
+
+### Matched Repos
+
+- **my-test-framework** (85%): Both focus on testing infrastructure
+
+### Ideas
+
+- Integrate snapshot testing into CI pipeline

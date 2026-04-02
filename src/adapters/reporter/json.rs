@@ -112,6 +112,46 @@ mod tests {
         assert_eq!(deserialized[1], results[1]);
     }
 
+    #[test]
+    fn json_output_snapshot() {
+        use chrono::TimeZone;
+
+        let result = CrossRefResult {
+            analysis: AnalysisResult {
+                candidate: RepoCandidate {
+                    entry: FeedEntry {
+                        title: "snapshot-tool".into(),
+                        repo_url: Url::parse("https://github.com/snapshot/tool").unwrap(),
+                        description: Some("A tool for snapshot testing".into()),
+                        published: Some(Utc.with_ymd_and_hms(2025, 1, 15, 12, 0, 0).unwrap()),
+                        source_name: "GitHub Trending".into(),
+                    },
+                    stars: 1500,
+                    language: Some("Rust".into()),
+                    topics: vec!["testing".into(), "snapshot".into()],
+                    fork: false,
+                    archived: false,
+                    owner: "snapshot".into(),
+                    repo_name: "tool".into(),
+                },
+                summary: "A powerful snapshot testing tool for Rust projects".into(),
+                key_features: vec!["inline snapshots".into(), "redactions".into()],
+                tech_stack: vec!["Rust".into(), "serde".into()],
+                relevance_score: 0.92,
+            },
+            matched_repos: vec![RepoMatch {
+                own_repo: "my-test-framework".into(),
+                relevance: 0.85,
+                reason: "Both focus on testing infrastructure".into(),
+            }],
+            ideas: vec!["Integrate snapshot testing into CI pipeline".into()],
+            overall_relevance: 0.88,
+        };
+
+        let json = serde_json::to_string_pretty(&[&result]).unwrap();
+        insta::assert_snapshot!(json);
+    }
+
     #[tokio::test]
     async fn report_empty_results_produces_empty_array() {
         let dir = tempfile::tempdir().unwrap();

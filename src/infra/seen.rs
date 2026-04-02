@@ -86,6 +86,7 @@ impl SeenStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn load_nonexistent_file_creates_empty_store() {
@@ -170,6 +171,45 @@ mod tests {
     }
 
     #[test]
+    fn mark_seen_duplicate_url_no_double_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seen.json");
+        let mut store = SeenStore::load(&path).unwrap();
+
+        store.mark_seen("https://github.com/owner/repo");
+        store.mark_seen("https://github.com/owner/repo");
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn is_empty_on_fresh_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seen.json");
+        let store = SeenStore::load(&path).unwrap();
+
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn save_load_preserves_large_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("seen.json");
+        let mut store = SeenStore::load(&path).unwrap();
+
+        for i in 0..1000 {
+            store.mark_seen(&format!("https://github.com/owner/repo-{i}"));
+        }
+        assert_eq!(store.len(), 1000);
+        store.save().unwrap();
+
+        let loaded = SeenStore::load(&path).unwrap();
+        assert_eq!(loaded.len(), 1000);
+        for i in 0..1000 {
+            assert!(loaded.is_seen(&format!("https://github.com/owner/repo-{i}")));
+        }
+    }
+
+    #[test]
     fn save_creates_parent_dirs() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("deep").join("seen.json");
@@ -179,5 +219,16 @@ mod tests {
         store.save().unwrap();
 
         assert!(path.exists());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_seen_store_mark_then_check_always_true(s in "\\PC{1,200}") {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("seen.json");
+            let mut store = SeenStore::load(&path).unwrap();
+            store.mark_seen(&s);
+            prop_assert!(store.is_seen(&s));
+        }
     }
 }

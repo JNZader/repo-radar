@@ -55,6 +55,7 @@ pub struct RepoMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn sample_feed_entry() -> FeedEntry {
         FeedEntry {
@@ -167,6 +168,68 @@ mod tests {
     }
 
     #[test]
+    fn repo_match_serde_round_trip() {
+        let m = RepoMatch {
+            own_repo: "my-project".into(),
+            relevance: 0.88,
+            reason: "Shared tech stack".into(),
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        let deserialized: RepoMatch = serde_json::from_str(&json).unwrap();
+        assert_eq!(m, deserialized);
+    }
+
+    #[test]
+    fn feed_entry_clone_is_independent() {
+        let original = sample_feed_entry();
+        let clone = original.clone();
+
+        // Mutate original via a new binding (structs are public, so rebuild)
+        let mutated = FeedEntry {
+            title: "changed-title".into(),
+            ..original
+        };
+
+        assert_ne!(mutated.title, clone.title);
+        assert_eq!(clone.title, "awesome-tool");
+    }
+
+    #[test]
+    fn crossref_result_overall_relevance_zero_with_no_matches() {
+        let result = CrossRefResult {
+            analysis: AnalysisResult {
+                candidate: sample_repo_candidate(),
+                summary: "S".into(),
+                key_features: vec![],
+                tech_stack: vec![],
+                relevance_score: 0.0,
+            },
+            matched_repos: vec![],
+            ideas: vec![],
+            overall_relevance: 0.0,
+        };
+        assert!(result.matched_repos.is_empty());
+        assert!((result.overall_relevance - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn analysis_result_relevance_score_range() {
+        let make = |score: f64| AnalysisResult {
+            candidate: sample_repo_candidate(),
+            summary: "S".into(),
+            key_features: vec![],
+            tech_stack: vec![],
+            relevance_score: score,
+        };
+
+        let zero = make(0.0);
+        assert!((zero.relevance_score - 0.0).abs() < f64::EPSILON);
+
+        let one = make(1.0);
+        assert!((one.relevance_score - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn crossref_result_empty_matched_repos() {
         let result = CrossRefResult {
             analysis: AnalysisResult {
@@ -184,5 +247,55 @@ mod tests {
         let deserialized: CrossRefResult = serde_json::from_str(&json).unwrap();
         assert_eq!(result, deserialized);
         assert!(deserialized.matched_repos.is_empty());
+    }
+
+    proptest! {
+        #[test]
+        fn prop_feed_entry_serde_round_trip_is_lossless(
+            title in "\\PC{1,50}",
+            description in proptest::option::of("\\PC{1,100}"),
+            source_name in "\\PC{1,30}",
+            timestamp in proptest::option::of(proptest::num::i64::ANY),
+        ) {
+            let published = timestamp.map(|ts| {
+                chrono::DateTime::from_timestamp(ts.rem_euclid(4_102_444_800), 0)
+                    .unwrap_or_default()
+            });
+            let entry = FeedEntry {
+                title,
+                repo_url: Url::parse("https://github.com/test/repo").unwrap(),
+                description,
+                published,
+                source_name,
+            };
+            let json = serde_json::to_string(&entry).unwrap();
+            let deserialized: FeedEntry = serde_json::from_str(&json).unwrap();
+            prop_assert_eq!(entry, deserialized);
+        }
+
+        #[test]
+        fn prop_repo_match_relevance_is_finite(
+            relevance in proptest::num::f64::NORMAL | proptest::num::f64::ZERO,
+        ) {
+            // Test with finite f64 values only (normal + zero); NaN/Inf are
+            // invalid JSON numbers and serde_json behaviour for them is
+            // implementation-defined, so we focus on the well-defined path.
+            let m = RepoMatch {
+                own_repo: "test-repo".into(),
+                relevance,
+                reason: "test reason".into(),
+            };
+            let json = serde_json::to_string(&m).unwrap();
+            let deserialized: RepoMatch = serde_json::from_str(&json).unwrap();
+            prop_assert!(deserialized.relevance.is_finite(),
+                "finite input must produce finite output");
+            if relevance == 0.0 {
+                prop_assert_eq!(deserialized.relevance, 0.0);
+            } else {
+                let rel_error = ((deserialized.relevance - relevance) / relevance).abs();
+                prop_assert!(rel_error < 1e-10,
+                    "relative error {} too large for value {}", rel_error, relevance);
+            }
+        }
     }
 }

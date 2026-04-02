@@ -128,3 +128,54 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pipeline_report_display_shows_all_counts() {
+        let report = PipelineReport {
+            entries_fetched: 100,
+            entries_new: 80,
+            candidates_filtered: 50,
+            analyzed: 40,
+            crossrefed: 30,
+            reported: 25,
+        };
+        let output = format!("{report}");
+        assert!(output.contains("100"));
+        assert!(output.contains("80"));
+        assert!(output.contains("50"));
+        assert!(output.contains("40"));
+        assert!(output.contains("30"));
+        assert!(output.contains("25"));
+        assert!(output.contains("fetched"));
+        assert!(output.contains("new"));
+        assert!(output.contains("filtered"));
+        assert!(output.contains("analyzed"));
+        assert!(output.contains("cross-referenced"));
+        assert!(output.contains("reported"));
+    }
+
+    #[test]
+    fn pipeline_report_default_values() {
+        let report = PipelineReport {
+            entries_fetched: 0,
+            entries_new: 0,
+            candidates_filtered: 0,
+            analyzed: 0,
+            crossrefed: 0,
+            reported: 0,
+        };
+        assert_eq!(report.entries_fetched, 0);
+        assert_eq!(report.entries_new, 0);
+        assert_eq!(report.candidates_filtered, 0);
+        assert_eq!(report.analyzed, 0);
+        assert_eq!(report.crossrefed, 0);
+        assert_eq!(report.reported, 0);
+
+        let output = format!("{report}");
+        assert!(output.contains("0 fetched"));
+    }
+}
