@@ -20,7 +20,7 @@ owo-colors = "4"
 dirs = "6"
 feed-rs = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-octocrab = { version = "0.44", default-features = false, features = ["rustls", "retry", "timeout"] }
+octocrab = { version = "0.44", default-features = false, features = ["default-client", "rustls", "rustls-ring", "retry", "timeout"] }
 url = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
