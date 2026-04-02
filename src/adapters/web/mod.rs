@@ -6,8 +6,13 @@ pub mod templates;
 
 use std::sync::Arc;
 
+use askama::Template;
 use axum::Router;
+use axum::extract::Request;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
+use serde_json::json;
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::config::AppConfig;
@@ -24,6 +29,29 @@ pub struct AppState {
     pub progress_tx: broadcast::Sender<ScanProgress>,
 }
 
+/// Fallback handler for unmatched routes.
+/// Returns JSON for /api/* paths, HTML error page for everything else.
+async fn fallback_handler(req: Request) -> Response {
+    let path = req.uri().path().to_string();
+    if path.starts_with("/api/") {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "not_found", "message": "The requested API endpoint does not exist" })),
+        )
+            .into_response()
+    } else {
+        let tmpl = templates::ErrorTemplate {
+            status_code: 404,
+            title: "Not Found".to_string(),
+            message: "The page you are looking for does not exist.".to_string(),
+        };
+        let html = tmpl
+            .render()
+            .unwrap_or_else(|_| "<h1>404 Not Found</h1>".to_string());
+        (StatusCode::NOT_FOUND, axum::response::Html(html)).into_response()
+    }
+}
+
 /// Build the web router with all routes mounted.
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -36,6 +64,7 @@ pub fn router(state: AppState) -> Router {
         .route("/reports", get(handlers::pages::reports_page))
         .route("/reports/{id}", get(handlers::pages::report_detail))
         .route("/static/{*path}", get(assets::serve_static))
+        .fallback(fallback_handler)
         .with_state(state)
 }
 

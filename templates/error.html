@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}{{ status_code }} — repo-radar{% endblock %}
+
+{% block content %}
+<div class="flex min-h-[60vh] flex-col items-center justify-center">
+    <p class="text-6xl font-bold text-indigo-400">{{ status_code }}</p>
+    <h1 class="mt-4 text-2xl font-semibold text-white">{{ title }}</h1>
+    <p class="mt-2 text-gray-400">{{ message }}</p>
+    <a href="/" class="mt-6 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors">
+        Back to Dashboard
+    </a>
+</div>
+{% endblock %}

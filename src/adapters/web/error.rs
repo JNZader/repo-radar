@@ -1,6 +1,9 @@
+use askama::Template;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+
+use super::templates::ErrorTemplate;
 
 /// Web layer error type with content-negotiation support.
 #[derive(Debug, Clone)]
@@ -88,12 +91,24 @@ pub fn into_negotiated_response(error: WebError, headers: &HeaderMap) -> Respons
         };
         (status, axum::Json(body)).into_response()
     } else {
-        let html = format!(
-            "<html><body><h1>{} {}</h1><p>{}</p></body></html>",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("Error"),
-            error.message()
-        );
+        let tmpl = ErrorTemplate {
+            status_code: status.as_u16(),
+            title: status
+                .canonical_reason()
+                .unwrap_or("Error")
+                .to_string(),
+            message: error.message().to_string(),
+        };
+        let html = tmpl
+            .render()
+            .unwrap_or_else(|_| {
+                format!(
+                    "<html><body><h1>{} {}</h1><p>{}</p></body></html>",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("Error"),
+                    error.message()
+                )
+            });
         (status, axum::response::Html(html)).into_response()
     }
 }
@@ -159,7 +174,7 @@ mod tests {
         let body = response.into_body();
         let bytes = body.collect().await.unwrap().to_bytes();
         let text = String::from_utf8(bytes.to_vec()).unwrap();
-        assert!(text.contains("<html>"));
+        assert!(text.contains("<!DOCTYPE html>") || text.contains("<html>"));
         assert!(text.contains("gone"));
     }
 }

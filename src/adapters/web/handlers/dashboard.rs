@@ -17,6 +17,11 @@ pub async fn index(State(state): State<AppState>) -> Html<String> {
     let all_languages = collect_languages(&results);
     let total_pages = 1; // full render shows all results on one page
 
+    let chart_relevance_json = serde_json::to_string(&stats.relevance_buckets)
+        .unwrap_or_else(|_| "[0,0,0,0,0]".to_string());
+    let chart_languages_json = serde_json::to_string(&stats.top_languages)
+        .unwrap_or_else(|_| "[]".to_string());
+
     let tmpl = DashboardTemplate {
         results,
         stats,
@@ -26,6 +31,8 @@ pub async fn index(State(state): State<AppState>) -> Html<String> {
         current_page: 1,
         total_pages,
         all_languages,
+        chart_relevance_json,
+        chart_languages_json,
     };
 
     Html(tmpl.render().unwrap_or_else(|e| {

@@ -20,6 +20,20 @@
         </div>
     </div>
 
+    <!-- Charts -->
+    {% if !results.is_empty() %}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="rounded-lg border border-gray-700 bg-gray-800 p-4">
+            <h3 class="mb-2 text-sm font-medium text-gray-400">Relevance Distribution</h3>
+            <canvas id="relevance-chart" height="200"></canvas>
+        </div>
+        <div class="rounded-lg border border-gray-700 bg-gray-800 p-4">
+            <h3 class="mb-2 text-sm font-medium text-gray-400">Language Breakdown</h3>
+            <canvas id="language-chart" height="200"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Actions Bar -->
     <div class="flex flex-wrap items-center gap-4">
         <button
@@ -143,4 +157,78 @@
 
 {% block scripts %}
 <script src="/static/js/scan.js"></script>
+<script id="chart-data" type="application/json">
+{
+  "relevance_buckets": {{ chart_relevance_json }},
+  "languages": {{ chart_languages_json }}
+}
+</script>
+<script>
+(function() {
+  var dataEl = document.getElementById('chart-data');
+  if (!dataEl) return;
+  var data;
+  try { data = JSON.parse(dataEl.textContent); } catch(e) { return; }
+
+  var buckets = data.relevance_buckets || [0,0,0,0,0];
+  var hasRelevance = buckets.some(function(v) { return v > 0; });
+  var relevanceCanvas = document.getElementById('relevance-chart');
+
+  if (relevanceCanvas && hasRelevance) {
+    new Chart(relevanceCanvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: ['0-20%', '20-40%', '40-60%', '60-80%', '80-100%'],
+        datasets: [{
+          label: 'Repos',
+          data: buckets,
+          backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#6366f1'],
+          borderWidth: 0,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#9ca3af' }, grid: { display: false } },
+          y: { ticks: { color: '#9ca3af', stepSize: 1 }, grid: { color: '#374151' }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  var langs = data.languages || [];
+  var hasLangs = langs.length > 0;
+  var langCanvas = document.getElementById('language-chart');
+
+  if (langCanvas && hasLangs) {
+    var langLabels = langs.map(function(l) { return l[0]; });
+    var langCounts = langs.map(function(l) { return l[1]; });
+    var colors = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'];
+    new Chart(langCanvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: langLabels,
+        datasets: [{
+          data: langCounts,
+          backgroundColor: colors.slice(0, langLabels.length),
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: '#d1d5db', padding: 12 }
+          }
+        }
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

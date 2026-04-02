@@ -10,6 +10,8 @@ pub struct DashboardStats {
     pub total_repos: usize,
     pub avg_relevance: f64,
     pub top_languages: Vec<(String, usize)>,
+    /// Count of repos in each relevance bucket: [0-20%, 20-40%, 40-60%, 60-80%, 80-100%]
+    pub relevance_buckets: [usize; 5],
 }
 
 impl DashboardStats {
@@ -32,12 +34,27 @@ impl DashboardStats {
         }
         let mut top_languages: Vec<(String, usize)> = lang_counts.into_iter().collect();
         top_languages.sort_by(|a, b| b.1.cmp(&a.1));
-        top_languages.truncate(3);
+        top_languages.truncate(5);
+
+        // Build relevance buckets: [0-20%, 20-40%, 40-60%, 60-80%, 80-100%]
+        let mut relevance_buckets = [0usize; 5];
+        for result in results {
+            let pct = (result.overall_relevance * 100.0).round() as u32;
+            let idx = match pct {
+                0..=19 => 0,
+                20..=39 => 1,
+                40..=59 => 2,
+                60..=79 => 3,
+                _ => 4,
+            };
+            relevance_buckets[idx] += 1;
+        }
 
         Self {
             total_repos,
             avg_relevance,
             top_languages,
+            relevance_buckets,
         }
     }
 
@@ -126,6 +143,10 @@ pub struct DashboardTemplate {
     pub current_page: usize,
     pub total_pages: usize,
     pub all_languages: Vec<String>,
+    /// JSON-encoded relevance buckets for Chart.js
+    pub chart_relevance_json: String,
+    /// JSON-encoded language counts for Chart.js
+    pub chart_languages_json: String,
 }
 
 impl DashboardTemplate {
@@ -153,6 +174,15 @@ impl DashboardTemplate {
     pub fn is_lang_selected(&self, lang: &str) -> bool {
         self.current_lang_filter == lang
     }
+}
+
+/// Error page template.
+#[derive(Template)]
+#[template(path = "error.html")]
+pub struct ErrorTemplate {
+    pub status_code: u16,
+    pub title: String,
+    pub message: String,
 }
 
 /// Partial template for the results table body (HTMX swap target).
@@ -297,6 +327,8 @@ mod tests {
         let results = vec![mock_result("test-repo", 42, "Rust", 0.85)];
         let stats = DashboardStats::from_results(&results);
         let langs = collect_languages(&results);
+        let chart_relevance_json = serde_json::to_string(&stats.relevance_buckets).unwrap();
+        let chart_languages_json = serde_json::to_string(&stats.top_languages).unwrap();
         let tmpl = DashboardTemplate {
             results,
             stats,
@@ -306,6 +338,8 @@ mod tests {
             current_page: 1,
             total_pages: 1,
             all_languages: langs,
+            chart_relevance_json,
+            chart_languages_json,
         };
         let rendered = tmpl.render().unwrap();
         assert!(rendered.contains("<!DOCTYPE html>"));
