@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>AI/ML GitHub Repos Feed</title>
+  <link href="https://tom-doerr.github.io/github_repos_feed/feed.xml" rel="self" type="application/atom+xml"/>
+  <updated>2026-03-31T00:00:00Z</updated>
+  <id>https://tom-doerr.github.io/github_repos_feed/feed.xml</id>
+
+  <entry>
+    <id>https://github.com/openai/whisper</id>
+    <title>whisper</title>
+    <link href="https://tom-doerr.github.io/github_repos_feed/whisper" rel="alternate" type="text/html"/>
+    <link href="https://github.com/openai/whisper" rel="related" type="text/html"/>
+    <summary>Robust Speech Recognition via Large-Scale Weak Supervision</summary>
+    <published>2026-03-30T12:00:00Z</published>
+    <updated>2026-03-30T12:00:00Z</updated>
+  </entry>
+
+  <entry>
+    <id>https://github.com/langchain-ai/langchain</id>
+    <title>langchain</title>
+    <link href="https://tom-doerr.github.io/github_repos_feed/langchain" rel="alternate" type="text/html"/>
+    <link href="https://github.com/langchain-ai/langchain" rel="related" type="text/html"/>
+    <content type="html">Building applications with LLMs through composability</content>
+    <published>2026-03-29T10:00:00Z</published>
+    <updated>2026-03-29T10:00:00Z</updated>
+  </entry>
+
+  <entry>
+    <id>https://github.com/huggingface/transformers</id>
+    <title>transformers</title>
+    <link href="https://tom-doerr.github.io/github_repos_feed/transformers" rel="alternate" type="text/html"/>
+    <link href="https://github.com/huggingface/transformers" rel="related" type="text/html"/>
+    <summary>State-of-the-art Machine Learning for PyTorch, TensorFlow, and JAX</summary>
+    <published>2026-03-28T08:00:00Z</published>
+    <updated>2026-03-28T08:00:00Z</updated>
+  </entry>
+
+  <entry>
+    <id>https://github.com/microsoft/autogen</id>
+    <title>autogen</title>
+    <link href="https://tom-doerr.github.io/github_repos_feed/autogen" rel="alternate" type="text/html"/>
+    <link href="https://github.com/microsoft/autogen" rel="related" type="text/html"/>
+    <summary>A programming framework for agentic AI</summary>
+    <published>2026-03-27T06:00:00Z</published>
+    <updated>2026-03-27T06:00:00Z</updated>
+  </entry>
+
+  <entry>
+    <id>no-github-url</id>
+    <title>non-github-entry</title>
+    <link href="https://example.com/something" rel="alternate" type="text/html"/>
+    <summary>This entry has no GitHub link and should be skipped</summary>
+    <updated>2026-03-26T04:00:00Z</updated>
+  </entry>
+</feed>

@@ -6,9 +6,9 @@ use tracing_subscriber::EnvFilter;
 
 use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer};
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
-use repo_radar::adapters::filter::{FilterAdapter, NoopFilter};
+use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
 use repo_radar::adapters::reporter::{NoopReporter, ReporterAdapter};
-use repo_radar::adapters::source::{NoopSource, SourceAdapter};
+use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config};
 use repo_radar::infra::seen::SeenStore;
@@ -113,12 +113,33 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
         return Ok(());
     }
 
-    // Build pipeline with Noop adapters (Phase 1 — real adapters in Phase 2+)
+    // Build pipeline — real adapters for source/filter, Noop for rest (Phase 3-4)
     let seen_path = config.general.data_dir.join("seen.json");
     let seen = SeenStore::load(&seen_path).into_diagnostic()?;
 
-    let source = SourceAdapter::Noop(NoopSource);
-    let filter = FilterAdapter::Noop(NoopFilter);
+    // Source: RSS if feeds configured, otherwise Noop
+    let source = if config.feeds.is_empty() {
+        SourceAdapter::Noop(NoopSource)
+    } else {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .into_diagnostic()?;
+        SourceAdapter::Rss(RssSource::new(config.feeds.clone(), client))
+    };
+
+    // Filter: GitHub metadata if token available, otherwise Noop
+    let filter = if config.general.github_token.is_some() || !config.feeds.is_empty() {
+        let gh_filter = GitHubMetadataFilter::new(
+            config.filter.clone(),
+            config.general.github_token.as_deref(),
+        )
+        .into_diagnostic()?;
+        FilterAdapter::GitHubMetadata(Box::new(gh_filter))
+    } else {
+        FilterAdapter::Noop(NoopFilter)
+    };
+
     let analyzer = AnalyzerAdapter::Noop(NoopAnalyzer);
     let crossref = CrossRefAdapter::Noop(NoopCrossRef);
     let reporter = ReporterAdapter::Noop(NoopReporter);

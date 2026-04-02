@@ -1,0 +1,22 @@
+{
+  "id": 12345678,
+  "name": "example-repo",
+  "full_name": "test-owner/example-repo",
+  "owner": {
+    "login": "test-owner",
+    "id": 1,
+    "type": "User"
+  },
+  "html_url": "https://github.com/test-owner/example-repo",
+  "description": "An example repository for testing",
+  "fork": false,
+  "archived": false,
+  "stargazers_count": 250,
+  "language": "Rust",
+  "topics": ["cli", "tooling", "rust"],
+  "default_branch": "main",
+  "url": "https://api.github.com/repos/test-owner/example-repo",
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-03-01T00:00:00Z",
+  "pushed_at": "2026-03-01T00:00:00Z"
+}
