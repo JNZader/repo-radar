@@ -48,6 +48,8 @@ pub enum ReporterError {
     WriteFailed(#[from] std::io::Error),
     #[error("template error: {0}")]
     TemplateFailed(String),
+    #[error("serialization failed: {0}")]
+    SerializationFailed(String),
 }
 
 #[derive(Debug, Error)]
@@ -158,6 +160,12 @@ mod tests {
     fn reporter_error_template_display() {
         let err = ReporterError::TemplateFailed("missing var".into());
         assert_eq!(err.to_string(), "template error: missing var");
+    }
+
+    #[test]
+    fn reporter_error_serialization_display() {
+        let err = ReporterError::SerializationFailed("invalid UTF-8".into());
+        assert_eq!(err.to_string(), "serialization failed: invalid UTF-8");
     }
 
     #[test]

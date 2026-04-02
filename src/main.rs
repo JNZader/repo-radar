@@ -8,7 +8,9 @@ use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer, RepoforgeAna
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
-use repo_radar::adapters::reporter::{NoopReporter, ReporterAdapter};
+use repo_radar::adapters::reporter::{
+    ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
+};
 use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config};
@@ -43,11 +45,23 @@ async fn main() -> Result<()> {
             backfill: _,
         } => handle_scan(cli.config.as_deref(), dry_run).await?,
         Command::Report {
-            format: _,
-            output: _,
+            ref format,
+            ref output,
         } => {
+            let config = load_config(cli.config.as_deref()).into_diagnostic()?;
+            let output_dir = output
+                .clone()
+                .unwrap_or_else(|| config.reporter.output_dir.clone());
+
+            let _reporter = match format.as_str() {
+                "json" => ReporterAdapter::Json(JsonReporter::new(output_dir)),
+                "console" => ReporterAdapter::Console(ConsoleReporter::new()),
+                _ => ReporterAdapter::Markdown(MarkdownReporter::new(output_dir)),
+            };
+
             eprintln!(
-                "{} Report command is not yet implemented. Coming in Phase 2.",
+                "{} Report generation requires cached scan results, which are not yet available. \
+                 Run `repo-radar scan` first, then re-run this command once caching is implemented.",
                 "TODO:".yellow().bold()
             );
         }
@@ -162,7 +176,12 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     } else {
         CrossRefAdapter::Noop(NoopCrossRef)
     };
-    let reporter = ReporterAdapter::Noop(NoopReporter);
+    let reporter = match config.reporter.format.as_str() {
+        "json" => ReporterAdapter::Json(JsonReporter::new(config.reporter.output_dir.clone())),
+        "console" => ReporterAdapter::Console(ConsoleReporter::new()),
+        // "markdown" and any unrecognized format default to Markdown
+        _ => ReporterAdapter::Markdown(MarkdownReporter::new(config.reporter.output_dir.clone())),
+    };
 
     let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen);
     let report = pipeline.run().await.into_diagnostic()?;

@@ -2,7 +2,7 @@ use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer};
 use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter};
-use repo_radar::adapters::reporter::{NoopReporter, ReporterAdapter};
+use repo_radar::adapters::reporter::{MarkdownReporter, ReporterAdapter};
 use repo_radar::adapters::source::{RssSource, SourceAdapter};
 use repo_radar::config::{FeedConfig, FilterConfig};
 use repo_radar::infra::seen::SeenStore;
@@ -209,7 +209,8 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
     // CrossRef: Noop since analyzer returns empty results (no AnalysisResults to cross-reference)
     let crossref = CrossRefAdapter::Noop(NoopCrossRef);
 
-    let reporter = ReporterAdapter::Noop(NoopReporter);
+    let report_dir = dir.path().join("reports");
+    let reporter = ReporterAdapter::Markdown(MarkdownReporter::new(report_dir.clone()));
 
     let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen);
     let report = pipeline.run().await.unwrap();
@@ -224,6 +225,29 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
     // CrossRef gets empty input from analyzer
     assert_eq!(report.crossrefed, 0, "no analysis results to cross-reference");
     assert_eq!(report.reported, 0);
+
+    // Verify MarkdownReporter produced a .md file in the output directory
+    assert!(report_dir.exists(), "report output directory should be created");
+    let md_files: Vec<_> = std::fs::read_dir(&report_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext == "md")
+        })
+        .collect();
+    assert_eq!(md_files.len(), 1, "exactly one .md report file should exist");
+
+    let content = std::fs::read_to_string(md_files[0].path()).unwrap();
+    assert!(
+        content.contains("# Repo Radar Report"),
+        "report should contain the main heading"
+    );
+    assert!(
+        content.contains("No results found."),
+        "report should indicate no results (analyzer was Noop)"
+    );
 }
 
 /// Full pipeline using ALL real adapter enum variants, including GitHub CrossRef.
