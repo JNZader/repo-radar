@@ -3,3 +3,4 @@ pub mod filter;
 pub mod analyzer;
 pub mod crossref;
 pub mod reporter;
+pub mod web;

@@ -1,0 +1,57 @@
+{% for r in results %}
+<tr class="hover:bg-gray-800 transition-colors">
+    <td class="whitespace-nowrap px-4 py-3">
+        <a href="{{ r.analysis.candidate.entry.repo_url }}" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300">
+            {{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}
+        </a>
+    </td>
+    <td class="whitespace-nowrap px-4 py-3 text-gray-300">&#11088; {{ r.analysis.candidate.stars }}</td>
+    <td class="whitespace-nowrap px-4 py-3">
+        {% match r.analysis.candidate.language %}
+        {% when Some with (lang) %}
+        <span class="inline-flex items-center rounded-full bg-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-200">{{ lang }}</span>
+        {% when None %}
+        <span class="text-gray-500">—</span>
+        {% endmatch %}
+    </td>
+    <td class="whitespace-nowrap px-4 py-3">
+        <span class="font-medium {{ self.rel_color(r.overall_relevance) }}">{{ self.rel_pct(r.overall_relevance) }}%</span>
+    </td>
+    <td class="px-4 py-3 text-sm text-gray-400">{{ r.analysis.candidate.topics.join(", ") }}</td>
+    <td class="whitespace-nowrap px-4 py-3 text-gray-300">{{ r.matched_repos.len() }}</td>
+</tr>
+{% endfor %}
+
+{% if results.is_empty() %}
+<tr>
+    <td colspan="6" class="px-4 py-8 text-center text-gray-500">No results match the current filters.</td>
+</tr>
+{% endif %}
+
+{% if total_pages > 1 %}
+<tr id="pagination-row">
+    <td colspan="6" class="px-4 py-3">
+        <nav class="flex items-center justify-between" aria-label="Pagination">
+            <p class="text-sm text-gray-400">Page {{ current_page }} of {{ total_pages }}</p>
+            <div class="flex gap-2">
+                {% if current_page > 1 %}
+                <a href="#"
+                   hx-get="/api/results?sort={{ current_sort }}&dir={{ current_dir }}&lang={{ current_lang_filter }}&page={{ current_page - 1 }}"
+                   hx-target="#results-body"
+                   class="rounded-md border border-gray-600 bg-gray-800 px-3 py-1 text-sm text-gray-300 hover:bg-gray-700 transition-colors">
+                    Previous
+                </a>
+                {% endif %}
+                {% if current_page < total_pages %}
+                <a href="#"
+                   hx-get="/api/results?sort={{ current_sort }}&dir={{ current_dir }}&lang={{ current_lang_filter }}&page={{ current_page + 1 }}"
+                   hx-target="#results-body"
+                   class="rounded-md border border-gray-600 bg-gray-800 px-3 py-1 text-sm text-gray-300 hover:bg-gray-700 transition-colors">
+                    Next
+                </a>
+                {% endif %}
+            </div>
+        </nav>
+    </td>
+</tr>
+{% endif %}

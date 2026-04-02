@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "sync"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
@@ -22,8 +22,16 @@ feed-rs = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 octocrab = { version = "0.44", default-features = false, features = ["default-client", "rustls", "rustls-ring", "retry", "timeout"] }
 url = { version = "2", features = ["serde"] }
+axum = { version = "0.8", features = ["macros"] }
+askama = "0.15"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+rust-embed = "8"
+serde_qs = "0.13"
+mime_guess = "2"
 
 [dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
 wiremock = "0.6"
 proptest = "1"
 insta = { version = "1", features = ["yaml"] }

@@ -12,6 +12,7 @@ use repo_radar::adapters::reporter::{
     ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
 };
 use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
+use repo_radar::adapters::web::{self, AppState};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config};
 use repo_radar::infra::seen::SeenStore;
@@ -44,6 +45,9 @@ async fn main() -> Result<()> {
             stage: _,
             backfill: _,
         } => handle_scan(cli.config.as_deref(), dry_run).await?,
+        Command::Serve { port, ref host } => {
+            handle_serve(cli.config.as_deref(), port, host).await?
+        }
         Command::Report {
             ref format,
             ref output,
@@ -183,10 +187,42 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
         _ => ReporterAdapter::Markdown(MarkdownReporter::new(config.reporter.output_dir.clone())),
     };
 
-    let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen);
+    let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen, None);
     let report = pipeline.run().await.into_diagnostic()?;
 
     println!("\n{}\n{report}", "Scan complete:".green().bold());
+
+    Ok(())
+}
+
+async fn handle_serve(
+    config_path_override: Option<&std::path::Path>,
+    port: u16,
+    host: &str,
+) -> Result<()> {
+    let config = load_config(config_path_override).into_diagnostic()?;
+    info!("config loaded for web server");
+
+    let (progress_tx, _) = tokio::sync::broadcast::channel(64);
+    let state = AppState {
+        config,
+        scan_status: std::sync::Arc::new(tokio::sync::Mutex::new(
+            repo_radar::adapters::web::state::ScanStatus::default(),
+        )),
+        last_results: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+        progress_tx,
+    };
+
+    let app = web::router(state);
+    let addr = format!("{host}:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr).await.into_diagnostic()?;
+
+    println!(
+        "{} Listening on http://{addr}",
+        "Serve:".green().bold()
+    );
+
+    axum::serve(listener, app).await.into_diagnostic()?;
 
     Ok(())
 }

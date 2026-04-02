@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 use tracing::{info, instrument};
 
 use crate::domain::analyzer::Analyzer;
@@ -7,6 +9,14 @@ use crate::domain::reporter::Reporter;
 use crate::domain::source::Source;
 use crate::infra::error::PipelineError;
 use crate::infra::seen::SeenStore;
+
+/// Progress update emitted during a scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanProgress {
+    pub stage: String,
+    pub percent: u8,
+    pub message: String,
+}
 
 /// Summary statistics returned after a pipeline run.
 #[derive(Debug, Clone)]
@@ -49,6 +59,7 @@ where
     crossref: X,
     reporter: R,
     seen: SeenStore,
+    progress_tx: Option<broadcast::Sender<ScanProgress>>,
 }
 
 impl<S, F, A, X, R> Pipeline<S, F, A, X, R>
@@ -59,7 +70,15 @@ where
     X: CrossRef,
     R: Reporter,
 {
-    pub fn new(source: S, filter: F, analyzer: A, crossref: X, reporter: R, seen: SeenStore) -> Self {
+    pub fn new(
+        source: S,
+        filter: F,
+        analyzer: A,
+        crossref: X,
+        reporter: R,
+        seen: SeenStore,
+        progress_tx: Option<broadcast::Sender<ScanProgress>>,
+    ) -> Self {
         Self {
             source,
             filter,
@@ -67,6 +86,19 @@ where
             crossref,
             reporter,
             seen,
+            progress_tx,
+        }
+    }
+
+    /// Send a progress event if a channel is configured. Silently ignores if None.
+    fn emit_progress(&self, stage: &str, percent: u8, message: &str) {
+        if let Some(ref tx) = self.progress_tx {
+            // Ignore send errors (no active receivers is fine)
+            let _ = tx.send(ScanProgress {
+                stage: stage.to_string(),
+                percent,
+                message: message.to_string(),
+            });
         }
     }
 
@@ -77,11 +109,13 @@ where
     /// Returns `PipelineError` if any stage fails. Subsequent stages are not executed.
     #[instrument(skip_all, name = "pipeline")]
     pub async fn run(&mut self) -> Result<PipelineReport, PipelineError> {
+        self.emit_progress("fetch", 10, "Fetching feeds...");
         info!("fetching entries from source");
         let entries = self.source.fetch().await?;
         let entries_fetched = entries.len();
         info!(count = entries_fetched, "entries fetched");
 
+        self.emit_progress("dedupe", 20, "Deduplicating entries...");
         // Deduplicate against seen store
         let new_entries: Vec<_> = entries
             .into_iter()
@@ -90,21 +124,25 @@ where
         let entries_new = new_entries.len();
         info!(count = entries_new, "new entries (not previously seen)");
 
+        self.emit_progress("filter", 40, "Filtering candidates...");
         info!("filtering candidates");
         let candidates = self.filter.filter(new_entries).await?;
         let candidates_filtered = candidates.len();
         info!(count = candidates_filtered, "candidates after filter");
 
+        self.emit_progress("analyze", 60, "Analyzing repos...");
         info!("analyzing candidates");
         let analyzed = self.analyzer.analyze(candidates).await?;
         let analyzed_count = analyzed.len();
         info!(count = analyzed_count, "analyzed results");
 
+        self.emit_progress("crossref", 80, "Cross-referencing...");
         info!("cross-referencing");
         let crossrefed = self.crossref.cross_reference(analyzed).await?;
         let crossrefed_count = crossrefed.len();
         info!(count = crossrefed_count, "cross-referenced results");
 
+        self.emit_progress("report", 90, "Generating report...");
         info!("generating report");
         self.reporter.report(&crossrefed).await?;
         let reported = crossrefed_count;
@@ -117,6 +155,8 @@ where
         }
         self.seen.save()?;
         info!(total_seen = self.seen.len(), "seen store saved");
+
+        self.emit_progress("complete", 100, "Scan complete");
 
         Ok(PipelineReport {
             entries_fetched,
@@ -177,5 +217,79 @@ mod tests {
 
         let output = format!("{report}");
         assert!(output.contains("0 fetched"));
+    }
+
+    #[tokio::test]
+    async fn pipeline_emits_progress_events() {
+        use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::crossref::NoopCrossRef;
+        use crate::adapters::filter::NoopFilter;
+        use crate::adapters::reporter::NoopReporter;
+        use crate::adapters::source::NoopSource;
+
+        let dir = tempfile::tempdir().unwrap();
+        let seen_path = dir.path().join("seen.json");
+        let seen = SeenStore::load(&seen_path).unwrap();
+
+        let (tx, mut rx) = broadcast::channel(16);
+
+        let mut pipeline = Pipeline::new(
+            NoopSource,
+            NoopFilter,
+            NoopAnalyzer,
+            NoopCrossRef,
+            NoopReporter,
+            seen,
+            Some(tx),
+        );
+
+        pipeline.run().await.unwrap();
+
+        let mut stages = Vec::new();
+        while let Ok(progress) = rx.try_recv() {
+            stages.push((progress.stage, progress.percent, progress.message));
+        }
+
+        let stage_names: Vec<&str> = stages.iter().map(|(s, _, _)| s.as_str()).collect();
+        assert_eq!(
+            stage_names,
+            vec!["fetch", "dedupe", "filter", "analyze", "crossref", "report", "complete"]
+        );
+
+        // Verify percentages are monotonically increasing
+        let percents: Vec<u8> = stages.iter().map(|(_, p, _)| *p).collect();
+        assert_eq!(percents, vec![10, 20, 40, 60, 80, 90, 100]);
+    }
+
+    #[tokio::test]
+    async fn pipeline_works_without_progress_channel() {
+        use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::crossref::NoopCrossRef;
+        use crate::adapters::filter::NoopFilter;
+        use crate::adapters::reporter::NoopReporter;
+        use crate::adapters::source::NoopSource;
+
+        let dir = tempfile::tempdir().unwrap();
+        let seen_path = dir.path().join("seen.json");
+        let seen = SeenStore::load(&seen_path).unwrap();
+
+        let mut pipeline = Pipeline::new(
+            NoopSource,
+            NoopFilter,
+            NoopAnalyzer,
+            NoopCrossRef,
+            NoopReporter,
+            seen,
+            None,
+        );
+
+        let report = pipeline.run().await.unwrap();
+
+        assert_eq!(report.entries_fetched, 0);
+        assert_eq!(report.entries_new, 0);
+        assert_eq!(report.candidates_filtered, 0);
+        assert_eq!(report.analyzed, 0);
+        assert_eq!(report.crossrefed, 0);
+        assert_eq!(report.reported, 0);
     }
 }

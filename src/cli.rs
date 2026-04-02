@@ -51,6 +51,17 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    /// Start the web dashboard server.
+    Serve {
+        /// Port to listen on.
+        #[arg(long, default_value = "3000")]
+        port: u16,
+
+        /// Host address to bind to.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

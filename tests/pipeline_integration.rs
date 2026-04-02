@@ -19,6 +19,7 @@ async fn pipeline_with_noop_adapters_runs_successfully() {
         NoopCrossRef,
         NoopReporter,
         seen,
+        None,
     );
 
     let report = pipeline.run().await.unwrap();
@@ -44,6 +45,7 @@ async fn pipeline_report_display_format() {
         NoopCrossRef,
         NoopReporter,
         seen,
+        None,
     );
 
     let report = pipeline.run().await.unwrap();
@@ -71,6 +73,7 @@ async fn pipeline_persists_seen_store() {
         NoopCrossRef,
         NoopReporter,
         seen,
+        None,
     );
 
     pipeline.run().await.unwrap();

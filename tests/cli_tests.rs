@@ -131,6 +131,50 @@ fn parse_verbose_flags() {
 }
 
 #[test]
+fn parse_serve_defaults() {
+    let cli = Cli::try_parse_from(["repo-radar", "serve"]).unwrap();
+    match cli.command {
+        repo_radar::cli::Command::Serve { port, host } => {
+            assert_eq!(port, 3000);
+            assert_eq!(host, "127.0.0.1");
+        }
+        other => panic!("expected Serve, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_serve_custom_port() {
+    let cli = Cli::try_parse_from(["repo-radar", "serve", "--port", "8080"]).unwrap();
+    match cli.command {
+        repo_radar::cli::Command::Serve { port, host } => {
+            assert_eq!(port, 8080);
+            assert_eq!(host, "127.0.0.1");
+        }
+        other => panic!("expected Serve, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_serve_custom_host_and_port() {
+    let cli = Cli::try_parse_from([
+        "repo-radar",
+        "serve",
+        "--port",
+        "8080",
+        "--host",
+        "0.0.0.0",
+    ])
+    .unwrap();
+    match cli.command {
+        repo_radar::cli::Command::Serve { port, host } => {
+            assert_eq!(port, 8080);
+            assert_eq!(host, "0.0.0.0");
+        }
+        other => panic!("expected Serve, got {other:?}"),
+    }
+}
+
+#[test]
 fn parse_unknown_subcommand_fails() {
     let result = Cli::try_parse_from(["repo-radar", "foobar"]);
     assert!(result.is_err());
