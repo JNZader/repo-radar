@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use crate::infra::error::PipelineError;
 
@@ -19,6 +20,93 @@ pub struct AppConfig {
     pub reporter: ReporterConfig,
     #[serde(default)]
     pub general: GeneralConfig,
+}
+
+const VALID_FORMATS: &[&str] = &["markdown", "json", "console"];
+const VALID_LOG_LEVELS: &[&str] = &["trace", "debug", "info", "warn", "error"];
+const MAX_TIMEOUT_SECS: u64 = 600;
+const MAX_BATCH_SIZE: usize = 1000;
+
+impl AppConfig {
+    /// Validate all config values after parsing.
+    ///
+    /// Collects every problem into a single error so the user can fix them all
+    /// at once instead of playing whack-a-mole one at a time.
+    pub fn validate(&self) -> Result<(), PipelineError> {
+        let mut errors: Vec<String> = Vec::new();
+
+        // 1. Feed URLs
+        for (i, feed) in self.feeds.iter().enumerate() {
+            if Url::parse(&feed.url).is_err() {
+                let fallback = format!("feeds[{i}]");
+                let label = feed.name.as_deref().unwrap_or(&fallback);
+                errors.push(format!("feed '{label}' has invalid URL: {}", feed.url));
+            }
+        }
+
+        // 2. Reporter format
+        if !VALID_FORMATS.contains(&self.reporter.format.as_str()) {
+            errors.push(format!(
+                "reporter.format '{}' is not valid (expected one of: {})",
+                self.reporter.format,
+                VALID_FORMATS.join(", "),
+            ));
+        }
+
+        // 3. Analyzer timeout
+        if self.analyzer.timeout_secs == 0 {
+            errors.push("analyzer.timeout_secs must be > 0".to_string());
+        } else if self.analyzer.timeout_secs > MAX_TIMEOUT_SECS {
+            errors.push(format!(
+                "analyzer.timeout_secs {} exceeds maximum of {MAX_TIMEOUT_SECS}",
+                self.analyzer.timeout_secs,
+            ));
+        }
+
+        // 4. Log level
+        if !VALID_LOG_LEVELS.contains(&self.general.log_level.as_str()) {
+            errors.push(format!(
+                "general.log_level '{}' is not valid (expected one of: {})",
+                self.general.log_level,
+                VALID_LOG_LEVELS.join(", "),
+            ));
+        }
+
+        // 5. Batch size
+        if self.general.backfill_batch_size == 0 {
+            errors.push("general.backfill_batch_size must be > 0".to_string());
+        } else if self.general.backfill_batch_size > MAX_BATCH_SIZE {
+            errors.push(format!(
+                "general.backfill_batch_size {} exceeds maximum of {MAX_BATCH_SIZE}",
+                self.general.backfill_batch_size,
+            ));
+        }
+
+        // 6. Repoforge path soft warning
+        if let Some(ref path) = self.analyzer.repoforge_path
+            && !path.exists()
+        {
+            tracing::warn!(
+                "analyzer.repoforge_path '{}' does not exist — \
+                 the binary may need to be installed",
+                path.display(),
+            );
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            let numbered: Vec<String> = errors
+                .iter()
+                .enumerate()
+                .map(|(i, e)| format!("{}. {e}", i + 1))
+                .collect();
+            Err(PipelineError::Config(format!(
+                "Config validation failed:\n{}",
+                numbered.join("\n"),
+            )))
+        }
+    }
 }
 
 /// An RSS/Atom feed source.
@@ -61,7 +149,7 @@ const fn default_min_stars() -> u64 {
 }
 
 /// Analyzer settings (repoforge + LLM).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzerConfig {
     #[serde(default)]
     pub repoforge_path: Option<PathBuf>,
@@ -72,6 +160,17 @@ pub struct AnalyzerConfig {
     /// Loaded from `REPO_RADAR_LLM_API_KEY` env var at runtime.
     #[serde(skip)]
     pub llm_api_key: Option<String>,
+}
+
+impl Default for AnalyzerConfig {
+    fn default() -> Self {
+        Self {
+            repoforge_path: None,
+            timeout_secs: default_timeout_secs(),
+            llm_model: None,
+            llm_api_key: None,
+        }
+    }
 }
 
 const fn default_timeout_secs() -> u64 {
@@ -193,6 +292,8 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
     if let Ok(username) = std::env::var("REPO_RADAR_GITHUB_USERNAME") {
         config.crossref.github_username = Some(username);
     }
+
+    config.validate()?;
 
     Ok(config)
 }
@@ -488,10 +589,103 @@ min_stars = 5
 
     #[test]
     fn config_analyzer_default_timeout() {
-        // AnalyzerConfig derives Default (timeout_secs=0), but serde default gives 60
         let toml_str = "[analyzer]\n";
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.analyzer.timeout_secs, 60);
+    }
+
+    // ── Validation tests ─────────────────────────────────────────────
+
+    #[test]
+    fn validate_accepts_valid_config() {
+        let config = AppConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_feed_url() {
+        let mut config = AppConfig::default();
+        config.feeds.push(FeedConfig {
+            url: "not a url".into(),
+            name: Some("Bad Feed".into()),
+        });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("invalid URL"), "error was: {err}");
+        assert!(err.contains("Bad Feed"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_unknown_reporter_format() {
+        let mut config = AppConfig::default();
+        config.reporter.format = "pdf".into();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("reporter.format"), "error was: {err}");
+        assert!(err.contains("pdf"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_zero_timeout() {
+        let mut config = AppConfig::default();
+        config.analyzer.timeout_secs = 0;
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("timeout_secs must be > 0"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_excessive_timeout() {
+        let mut config = AppConfig::default();
+        config.analyzer.timeout_secs = 9999;
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("exceeds maximum"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_invalid_log_level() {
+        let mut config = AppConfig::default();
+        config.general.log_level = "bananas".into();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("log_level"), "error was: {err}");
+        assert!(err.contains("bananas"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_zero_batch_size() {
+        let mut config = AppConfig::default();
+        config.general.backfill_batch_size = 0;
+        let err = config.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("backfill_batch_size must be > 0"),
+            "error was: {err}",
+        );
+    }
+
+    #[test]
+    fn validate_collects_multiple_errors() {
+        let mut config = AppConfig::default();
+        config.reporter.format = "xml".into();
+        config.analyzer.timeout_secs = 0;
+        config.general.log_level = "bananas".into();
+        let err = config.validate().unwrap_err().to_string();
+        // Must contain numbered errors — at least 3
+        assert!(err.contains("1."), "error was: {err}");
+        assert!(err.contains("2."), "error was: {err}");
+        assert!(err.contains("3."), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_all_reporter_formats() {
+        for format in &["markdown", "json", "console"] {
+            let mut config = AppConfig::default();
+            config.reporter.format = (*format).to_string();
+            assert!(config.validate().is_ok(), "format '{format}' should be valid");
+        }
+    }
+
+    #[test]
+    fn validate_accepts_empty_feeds() {
+        let config = AppConfig::default();
+        assert!(config.feeds.is_empty());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
