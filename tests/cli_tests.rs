@@ -177,8 +177,8 @@ fn cli_unknown_subcommand_fails() {
         .stderr(predicate::str::contains("unrecognized subcommand"));
 }
 
-/// `config init` ignores --config and writes to the XDG default path, so we
-/// cannot redirect it to a temp dir. We only verify the command exits 0
+/// `config init` without --config writes to the XDG default path.
+/// We only verify the command exits 0
 /// (it prints "already exists" or "created" depending on disk state).
 #[test]
 fn cli_config_init_exits_successfully() {
@@ -189,13 +189,56 @@ fn cli_config_init_exits_successfully() {
         .success();
 }
 
-/// `config show` loads from XDG default (or defaults when no file exists).
-/// It should always produce TOML with a [reporter] section.
+/// `config init --config <path>` creates the config at the specified path.
 #[test]
-fn cli_config_show_outputs_toml() {
+fn cli_config_init_respects_config_flag() {
+    let tmp = TempDir::new().unwrap();
+    let config_file = tmp.path().join("custom.toml");
+
+    assert!(!config_file.exists());
+
     Command::cargo_bin("repo-radar")
         .unwrap()
-        .args(["config", "show"])
+        .args([
+            "--config",
+            config_file.to_str().unwrap(),
+            "config",
+            "init",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created default config"));
+
+    assert!(config_file.exists());
+}
+
+/// `config show` with --config loads from the specified path.
+#[test]
+fn cli_config_show_outputs_toml() {
+    let tmp = TempDir::new().unwrap();
+    let config_file = tmp.path().join("show.toml");
+
+    // First, create a config at the custom path.
+    Command::cargo_bin("repo-radar")
+        .unwrap()
+        .args([
+            "--config",
+            config_file.to_str().unwrap(),
+            "config",
+            "init",
+        ])
+        .assert()
+        .success();
+
+    // Now show it using --config.
+    Command::cargo_bin("repo-radar")
+        .unwrap()
+        .args([
+            "--config",
+            config_file.to_str().unwrap(),
+            "config",
+            "show",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("[reporter]"));

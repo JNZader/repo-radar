@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     init_tracing(cli.verbose);
 
     match cli.command {
-        Command::Config { ref action } => handle_config(action)?,
+        Command::Config { ref action } => handle_config(action, cli.config.as_deref())?,
         Command::Scan {
             dry_run,
             stage: _,
@@ -70,10 +70,10 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn handle_config(action: &ConfigAction) -> Result<()> {
+fn handle_config(action: &ConfigAction, config_override: Option<&std::path::Path>) -> Result<()> {
     match action {
         ConfigAction::Init => {
-            let path = config_path();
+            let path = config_override.map(|p| p.to_path_buf()).unwrap_or_else(config_path);
             if path.exists() {
                 eprintln!(
                     "{} Config already exists at {}",
@@ -90,7 +90,7 @@ fn handle_config(action: &ConfigAction) -> Result<()> {
             );
         }
         ConfigAction::Show => {
-            let config = load_config(None).into_diagnostic()?;
+            let config = load_config(config_override).into_diagnostic()?;
             let toml_str =
                 toml::to_string_pretty(&config).into_diagnostic()?;
             println!("{toml_str}");
