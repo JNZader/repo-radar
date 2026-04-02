@@ -4,3 +4,28 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+miette = { version = "7", features = ["fancy"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+indicatif = "0.17"
+owo-colors = "4"
+dirs = "6"
+feed-rs = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+octocrab = { version = "0.44", default-features = false, features = ["rustls", "retry", "timeout"] }
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+wiremock = "0.6"
+proptest = "1"
+insta = { version = "1", features = ["yaml"] }
+assert_matches = "1.5"
+tempfile = "3"
