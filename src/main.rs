@@ -434,7 +434,7 @@ fn build_source(
 
     match adapters.len() {
         0 => SourceAdapter::Noop(NoopSource),
-        1 => adapters.into_iter().next().unwrap(),
+        1 => adapters.into_iter().next().expect("len checked == 1"),
         _ => SourceAdapter::Multi(MultiSource::new(adapters)),
     }
 }

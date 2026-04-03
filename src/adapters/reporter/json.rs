@@ -29,7 +29,13 @@ impl Reporter for JsonReporter {
 
         async move {
             let json = json?;
-            tokio::fs::create_dir_all(path.parent().unwrap())
+            let parent = path.parent().ok_or_else(|| {
+                ReporterError::WriteFailed(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("report path '{}' has no parent directory", path.display()),
+                ))
+            })?;
+            tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(ReporterError::WriteFailed)?;
             tokio::fs::write(&path, json)
