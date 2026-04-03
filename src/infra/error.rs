@@ -59,6 +59,18 @@ pub enum ReporterError {
 }
 
 #[derive(Debug, Error)]
+pub enum IdeaError {
+    #[error("failed to extract ideas: {0}")]
+    ExtractionFailed(String),
+    #[error("failed to read scan results: {0}")]
+    ReadFailed(String),
+    #[error("serialization failed: {0}")]
+    IdeaSerializationFailed(String),
+    #[error("failed to write ideas: {0}")]
+    WriteFailed(#[from] std::io::Error),
+}
+
+#[derive(Debug, Error)]
 pub enum PipelineError {
     #[error("source stage failed: {0}")]
     Source(#[from] SourceError),

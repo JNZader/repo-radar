@@ -9,6 +9,7 @@ use repo_radar::adapters::categorizer::{CategorizerAdapter, KeywordCategorizer};
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
+use repo_radar::adapters::idea_extractor::KeywordIdeaExtractor;
 use repo_radar::adapters::reporter::{
     ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
 };
@@ -19,6 +20,8 @@ use repo_radar::adapters::source::{
 use repo_radar::adapters::web::{self, AppState};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config, SourceConfig};
+use repo_radar::domain::idea_extractor::IdeaExtractor;
+use repo_radar::domain::model::CrossRefResult;
 use repo_radar::infra::cache::RepoCache;
 use repo_radar::infra::seen::SeenStore;
 use repo_radar::pipeline::Pipeline;
@@ -50,6 +53,14 @@ async fn main() -> Result<()> {
             stage: _,
             backfill: _,
         } => handle_scan(cli.config.as_deref(), dry_run).await?,
+        Command::Ideas {
+            ref input,
+            ref output,
+            min_relevance,
+            print,
+        } => {
+            handle_ideas(cli.config.as_deref(), input.as_deref(), output.as_deref(), min_relevance, print).await?
+        }
         Command::Serve { port, ref host } => {
             handle_serve(cli.config.as_deref(), port, host).await?
         }
@@ -208,6 +219,131 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     let report = pipeline.run().await.into_diagnostic()?;
 
     println!("\n{}\n{report}", "Scan complete:".green().bold());
+
+    Ok(())
+}
+
+async fn handle_ideas(
+    config_path_override: Option<&std::path::Path>,
+    input: Option<&std::path::Path>,
+    output: Option<&std::path::Path>,
+    min_relevance: f64,
+    print: bool,
+) -> Result<()> {
+    let config = load_config(config_path_override).into_diagnostic()?;
+    info!("config loaded for ideas extraction");
+
+    let crossref_results: Vec<CrossRefResult> = if let Some(input_path) = input {
+        info!(path = %input_path.display(), "loading scan results from file");
+        let content = tokio::fs::read_to_string(input_path)
+            .await
+            .into_diagnostic()?;
+        serde_json::from_str(&content).into_diagnostic()?
+    } else {
+        let output_dir = &config.reporter.output_dir;
+        let mut latest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+
+        if output_dir.exists() {
+            let entries = std::fs::read_dir(output_dir).into_diagnostic()?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "json")
+                    && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("report-"))
+                {
+                    if let Ok(meta) = path.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            if latest.as_ref().is_none_or(|(t, _)| modified > *t) {
+                                latest = Some((modified, path));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((_, path)) = latest {
+            info!(path = %path.display(), "loading most recent scan results");
+            let content = tokio::fs::read_to_string(&path)
+                .await
+                .into_diagnostic()?;
+            serde_json::from_str(&content).into_diagnostic()?
+        } else {
+            eprintln!(
+                "{} No scan results found. Run {} first, or provide --input <file>.",
+                "Error:".red().bold(),
+                "repo-radar scan".cyan().bold()
+            );
+            return Ok(());
+        }
+    };
+
+    info!(count = crossref_results.len(), "crossref results loaded");
+
+    let extractor = KeywordIdeaExtractor::new(min_relevance);
+    let idea_report = extractor.extract(&crossref_results).into_diagnostic()?;
+
+    let output_path = if let Some(path) = output {
+        path.to_path_buf()
+    } else {
+        let timestamp = chrono::Utc::now().timestamp();
+        config.reporter.output_dir.join(format!("ideas-{timestamp}.json"))
+    };
+
+    if let Some(parent) = output_path.parent() {
+        tokio::fs::create_dir_all(parent).await.into_diagnostic()?;
+    }
+
+    let json = serde_json::to_string_pretty(&idea_report).into_diagnostic()?;
+    tokio::fs::write(&output_path, &json).await.into_diagnostic()?;
+
+    println!(
+        "{} {} ideas extracted from {} repos, targeting {} of your repos",
+        "Ideas:".green().bold(),
+        idea_report.total_ideas.to_string().bold(),
+        idea_report.repos_analyzed.to_string().bold(),
+        idea_report.target_repos_involved.to_string().bold(),
+    );
+    println!(
+        "{} Written to {}",
+        "Output:".cyan().bold(),
+        output_path.display()
+    );
+
+    if print {
+        println!("\n{:=<80}", "".bold());
+        for (i, idea) in idea_report.ideas.iter().enumerate() {
+            println!(
+                "\n{} {} [{}] (relevance: {:.0}%, impact: {})",
+                format!("#{}", i + 1).bold().cyan(),
+                idea.kind,
+                idea.category,
+                idea.relevance * 100.0,
+                idea.impact,
+            );
+            println!(
+                "  {} {} -> {}",
+                "Source:".dimmed(),
+                idea.source_repo.white(),
+                idea.target_repo.yellow(),
+            );
+            println!("  {}", idea.description);
+            if !idea.source_features.is_empty() {
+                println!(
+                    "  {} {}",
+                    "Features:".dimmed(),
+                    idea.source_features.join(", ")
+                );
+            }
+            if !idea.relevant_tech.is_empty() {
+                println!(
+                    "  {} {}",
+                    "Tech:".dimmed(),
+                    idea.relevant_tech.join(", ")
+                );
+            }
+        }
+        println!("\n{:=<80}", "".bold());
+    }
 
     Ok(())
 }

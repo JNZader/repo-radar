@@ -52,6 +52,25 @@ pub enum Command {
         action: ConfigAction,
     },
 
+    /// Extract actionable ideas from the latest scan results.
+    Ideas {
+        /// Input file: path to a scan results JSON file.
+        #[arg(long, short)]
+        input: Option<PathBuf>,
+
+        /// Output file for the ideas JSON.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
+        /// Minimum relevance threshold (0.0-1.0).
+        #[arg(long, default_value = "0.1")]
+        min_relevance: f64,
+
+        /// Also print ideas to the console.
+        #[arg(long)]
+        print: bool,
+    },
+
     /// Start the web dashboard server.
     Serve {
         /// Port to listen on.

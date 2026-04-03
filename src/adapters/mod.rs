@@ -4,4 +4,5 @@ pub mod categorizer;
 pub mod analyzer;
 pub mod crossref;
 pub mod reporter;
+pub mod idea_extractor;
 pub mod web;

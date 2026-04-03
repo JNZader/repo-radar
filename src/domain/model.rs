@@ -89,6 +89,72 @@ pub struct RepoMatch {
     pub reason: String,
 }
 
+
+/// Impact estimate for an extracted idea.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum IdeaImpact {
+    High,
+    #[default]
+    Medium,
+    Low,
+}
+
+impl fmt::Display for IdeaImpact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::High => write!(f, "High"),
+            Self::Medium => write!(f, "Medium"),
+            Self::Low => write!(f, "Low"),
+        }
+    }
+}
+
+/// The kind of actionable idea extracted from a discovered repo.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum IdeaKind {
+    #[default]
+    FeatureAdoption,
+    GapFill,
+    TechAdoption,
+    PatternTransfer,
+}
+
+impl fmt::Display for IdeaKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FeatureAdoption => write!(f, "Feature Adoption"),
+            Self::GapFill => write!(f, "Gap Fill"),
+            Self::TechAdoption => write!(f, "Tech Adoption"),
+            Self::PatternTransfer => write!(f, "Pattern Transfer"),
+        }
+    }
+}
+
+/// An actionable idea extracted by comparing a discovered repo against user repos.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Idea {
+    pub source_repo: String,
+    pub source_url: Url,
+    pub target_repo: String,
+    pub description: String,
+    pub kind: IdeaKind,
+    pub impact: IdeaImpact,
+    pub relevance: f64,
+    pub source_features: Vec<String>,
+    pub relevant_tech: Vec<String>,
+    pub category: RepoCategory,
+}
+
+/// Collection of extracted ideas with summary metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdeaReport {
+    pub generated_at: DateTime<Utc>,
+    pub total_ideas: usize,
+    pub repos_analyzed: usize,
+    pub target_repos_involved: usize,
+    pub ideas: Vec<Idea>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
