@@ -119,7 +119,40 @@ impl AppConfig {
             ));
         }
 
-        // 6. Repoforge path soft warning
+        // 6. GitHub token validation
+        if let Some(ref token) = self.general.github_token {
+            let trimmed = token.trim();
+            if trimmed.is_empty() {
+                errors.push("general.github_token is set but empty".to_string());
+            } else if trimmed.len() <= 10 {
+                errors.push(format!(
+                    "general.github_token looks too short ({} chars) — \
+                     GitHub tokens are typically 40+ characters",
+                    trimmed.len(),
+                ));
+            }
+            const PLACEHOLDERS: &[&str] = &[
+                "xxx",
+                "your-token-here",
+                "your_token_here",
+                "TOKEN",
+                "GITHUB_TOKEN",
+                "ghp_xxxx",
+                "replace-me",
+            ];
+            if PLACEHOLDERS
+                .iter()
+                .any(|p| trimmed.eq_ignore_ascii_case(p))
+            {
+                tracing::warn!(
+                    "general.github_token looks like a placeholder ('{}') — \
+                     API calls will likely fail",
+                    trimmed,
+                );
+            }
+        }
+
+        // 7. Repoforge path soft warning
         if let Some(ref path) = self.analyzer.repoforge_path
             && !path.exists()
         {
@@ -319,6 +352,10 @@ pub struct GeneralConfig {
     /// Loaded from `REPO_RADAR_GITHUB_TOKEN` env var at runtime.
     #[serde(skip)]
     pub github_token: Option<String>,
+    /// Optional bearer token for dashboard authentication.
+    /// Loaded from `REPO_RADAR_DASHBOARD_TOKEN` env var at runtime.
+    #[serde(skip)]
+    pub dashboard_token: Option<String>,
 }
 
 impl Default for GeneralConfig {
@@ -328,6 +365,7 @@ impl Default for GeneralConfig {
             log_level: default_log_level(),
             backfill_batch_size: default_backfill_batch_size(),
             github_token: None,
+            dashboard_token: None,
         }
     }
 }
@@ -416,6 +454,9 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
     }
     if let Ok(username) = std::env::var("REPO_RADAR_GITHUB_USERNAME") {
         config.crossref.github_username = Some(username);
+    }
+    if let Ok(dashboard_token) = std::env::var("REPO_RADAR_DASHBOARD_TOKEN") {
+        config.general.dashboard_token = Some(dashboard_token);
     }
 
     config.validate()?;
@@ -833,6 +874,36 @@ min_stars = 5
     fn validate_accepts_empty_feeds() {
         let config = AppConfig::default();
         assert!(config.feeds.is_empty());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_github_token() {
+        let mut config = AppConfig::default();
+        config.general.github_token = Some("".into());
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("github_token is set but empty"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_short_github_token() {
+        let mut config = AppConfig::default();
+        config.general.github_token = Some("abc".into());
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("too short"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_valid_github_token() {
+        let mut config = AppConfig::default();
+        config.general.github_token = Some("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij".into());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_none_github_token() {
+        let config = AppConfig::default();
+        assert!(config.general.github_token.is_none());
         assert!(config.validate().is_ok());
     }
 

@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod auth;
 pub mod error;
 pub mod handlers;
 pub mod state;
@@ -7,13 +8,15 @@ pub mod templates;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::Router;
+use axum::{Extension, Router, middleware};
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use serde_json::json;
 use tokio::sync::{Mutex, RwLock, broadcast};
+
+use self::auth::ExpectedToken;
 
 use crate::config::AppConfig;
 use crate::domain::model::CrossRefResult;
@@ -53,8 +56,13 @@ async fn fallback_handler(req: Request) -> Response {
 }
 
 /// Build the web router with all routes mounted.
+///
+/// When `AppConfig.general.dashboard_token` is set, all routes require a valid
+/// `Authorization: Bearer <token>` header. When unset, the dashboard is open.
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let dashboard_token = state.config.general.dashboard_token.clone();
+
+    let app = Router::new()
         .route("/", get(handlers::dashboard::index))
         .route("/config", get(handlers::pages::config_page))
         .route("/api/config", get(handlers::pages::config_json))
@@ -66,7 +74,18 @@ pub fn router(state: AppState) -> Router {
         .route("/compare/{owner}/{repo}", get(handlers::compare::compare_view))
         .route("/static/{*path}", get(assets::serve_static))
         .fallback(fallback_handler)
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(token) = dashboard_token {
+        tracing::info!("Dashboard auth enabled via REPO_RADAR_DASHBOARD_TOKEN");
+        app.layer(middleware::from_fn(auth::require_bearer_token))
+            .layer(Extension(ExpectedToken(token)))
+    } else {
+        tracing::warn!(
+            "Dashboard running without auth \u{2014} only accessible on localhost"
+        );
+        app
+    }
 }
 
 #[cfg(test)]
