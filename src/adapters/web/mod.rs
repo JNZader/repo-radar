@@ -63,6 +63,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/scan/events", get(handlers::scan::scan_events))
         .route("/reports", get(handlers::pages::reports_page))
         .route("/reports/{id}", get(handlers::pages::report_detail))
+        .route("/compare/{owner}/{repo}", get(handlers::compare::compare_view))
         .route("/static/{*path}", get(assets::serve_static))
         .fallback(fallback_handler)
         .with_state(state)

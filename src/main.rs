@@ -12,10 +12,13 @@ use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilt
 use repo_radar::adapters::reporter::{
     ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
 };
-use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
+use repo_radar::adapters::source::{
+    GitHubTrendingSource, HackerNewsSource, MultiSource, NoopSource, RedditSource, RssSource,
+    SourceAdapter,
+};
 use repo_radar::adapters::web::{self, AppState};
 use repo_radar::cli::{Cli, Command, ConfigAction};
-use repo_radar::config::{config_path, load_config, write_default_config};
+use repo_radar::config::{config_path, load_config, write_default_config, SourceConfig};
 use repo_radar::infra::cache::RepoCache;
 use repo_radar::infra::seen::SeenStore;
 use repo_radar::pipeline::Pipeline;
@@ -138,16 +141,14 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     let seen_path = config.general.data_dir.join("seen.json");
     let seen = SeenStore::load(&seen_path).into_diagnostic()?;
 
-    // Source: RSS if feeds configured, otherwise Noop
-    let source = if config.feeds.is_empty() {
-        SourceAdapter::Noop(NoopSource)
-    } else {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .into_diagnostic()?;
-        SourceAdapter::Rss(RssSource::new(config.feeds.clone(), client))
-    };
+    // Build HTTP client shared across sources
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .into_diagnostic()?;
+
+    // Build sources from config.sources + backward-compat config.feeds
+    let source = build_source(&config, &http_client);
 
     // Filter: GitHub metadata if token available, otherwise Noop
     let filter = if config.general.github_token.is_some() || !config.feeds.is_empty() {
@@ -241,4 +242,63 @@ async fn handle_serve(
     axum::serve(listener, app).await.into_diagnostic()?;
 
     Ok(())
+}
+
+/// Build a `SourceAdapter` from config, supporting both `[[feeds]]` (legacy)
+/// and `[[sources]]` (new multi-source).
+fn build_source(
+    config: &repo_radar::config::AppConfig,
+    client: &reqwest::Client,
+) -> SourceAdapter {
+    let mut adapters: Vec<SourceAdapter> = Vec::new();
+
+    // Legacy [[feeds]] → RSS sources (backward compat)
+    if !config.feeds.is_empty() {
+        adapters.push(SourceAdapter::Rss(RssSource::new(
+            config.feeds.clone(),
+            client.clone(),
+        )));
+    }
+
+    // New [[sources]] entries
+    for source_cfg in &config.sources {
+        match source_cfg {
+            SourceConfig::Rss { url, name } => {
+                let feed = repo_radar::config::FeedConfig {
+                    url: url.clone(),
+                    name: name.clone(),
+                };
+                adapters.push(SourceAdapter::Rss(RssSource::new(
+                    vec![feed],
+                    client.clone(),
+                )));
+            }
+            SourceConfig::GitHubTrending { language, since } => {
+                adapters.push(SourceAdapter::GitHubTrending(GitHubTrendingSource::new(
+                    language.clone(),
+                    since.clone(),
+                    client.clone(),
+                )));
+            }
+            SourceConfig::HackerNews { limit } => {
+                adapters.push(SourceAdapter::HackerNews(HackerNewsSource::new(
+                    *limit,
+                    client.clone(),
+                )));
+            }
+            SourceConfig::Reddit { subreddits, limit } => {
+                adapters.push(SourceAdapter::Reddit(RedditSource::new(
+                    subreddits.clone(),
+                    *limit,
+                    client.clone(),
+                )));
+            }
+        }
+    }
+
+    match adapters.len() {
+        0 => SourceAdapter::Noop(NoopSource),
+        1 => adapters.into_iter().next().unwrap(),
+        _ => SourceAdapter::Multi(MultiSource::new(adapters)),
+    }
 }

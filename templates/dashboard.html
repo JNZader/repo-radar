@@ -120,7 +120,16 @@
                         <span class="font-medium {{ self.rel_color(r.overall_relevance) }}">{{ self.rel_pct(r.overall_relevance) }}%</span>
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-400">{{ r.analysis.candidate.topics.join(", ") }}</td>
-                    <td class="whitespace-nowrap px-4 py-3 text-gray-300">{{ r.matched_repos.len() }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-gray-300">
+                        {% if !r.matched_repos.is_empty() %}
+                        <a href="/compare/{{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}"
+                           class="text-indigo-400 hover:text-indigo-300 transition-colors">
+                            {{ r.matched_repos.len() }}
+                        </a>
+                        {% else %}
+                        0
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

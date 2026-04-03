@@ -219,6 +219,119 @@ impl ResultsTableTemplate {
     }
 }
 
+// ── Comparison view ─────────────────────────────────────────────────
+
+/// Discovered repo details for the comparison view.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiscoveredRepo {
+    pub owner: String,
+    pub repo_name: String,
+    pub repo_url: String,
+    pub stars: u64,
+    pub language: Option<String>,
+    pub topics: Vec<String>,
+    pub description: Option<String>,
+    pub summary: String,
+    pub key_features: Vec<String>,
+    pub tech_stack: Vec<String>,
+    pub relevance_score: f64,
+    pub overall_relevance: f64,
+}
+
+/// A single match detail for the comparison view.
+#[derive(Debug, Clone, Serialize)]
+pub struct MatchDetail {
+    pub own_repo: String,
+    pub relevance: f64,
+    pub reason: String,
+}
+
+impl MatchDetail {
+    /// Return relevance as an integer percentage.
+    pub fn rel_pct(&self) -> u32 {
+        relevance_pct(self.relevance)
+    }
+
+    /// Return the CSS color class for relevance.
+    pub fn rel_color(&self) -> &'static str {
+        relevance_color(self.relevance)
+    }
+}
+
+/// Build comparison data from a CrossRefResult.
+pub fn build_compare_data(result: &CrossRefResult) -> (DiscoveredRepo, Vec<MatchDetail>, Vec<String>) {
+    let candidate = &result.analysis.candidate;
+
+    let discovered = DiscoveredRepo {
+        owner: candidate.owner.clone(),
+        repo_name: candidate.repo_name.clone(),
+        repo_url: candidate.entry.repo_url.to_string(),
+        stars: candidate.stars,
+        language: candidate.language.clone(),
+        topics: candidate.topics.clone(),
+        description: candidate.entry.description.clone(),
+        summary: result.analysis.summary.clone(),
+        key_features: result.analysis.key_features.clone(),
+        tech_stack: result.analysis.tech_stack.clone(),
+        relevance_score: result.analysis.relevance_score,
+        overall_relevance: result.overall_relevance,
+    };
+
+    let matches: Vec<MatchDetail> = result
+        .matched_repos
+        .iter()
+        .map(|m| MatchDetail {
+            own_repo: m.own_repo.clone(),
+            relevance: m.relevance,
+            reason: m.reason.clone(),
+        })
+        .collect();
+
+    // Extract shared topics from match reasons to find unique ones
+    let mut shared_topics: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for m in &result.matched_repos {
+        // Parse "shared topics: x, y" from reason string
+        if let Some(topics_part) = m.reason.split("shared topics: ").nth(1) {
+            for topic in topics_part.split(", ") {
+                let topic = topic.split(';').next().unwrap_or(topic).trim();
+                if !topic.is_empty() {
+                    shared_topics.insert(topic.to_string());
+                }
+            }
+        }
+    }
+
+    let unique_topics: Vec<String> = candidate
+        .topics
+        .iter()
+        .filter(|t| !shared_topics.contains(&t.to_ascii_lowercase()))
+        .cloned()
+        .collect();
+
+    (discovered, matches, unique_topics)
+}
+
+/// Comparison page template.
+#[derive(Template)]
+#[template(path = "compare.html")]
+pub struct CompareTemplate {
+    pub discovered: DiscoveredRepo,
+    pub matches: Vec<MatchDetail>,
+    pub unique_topics: Vec<String>,
+}
+
+impl CompareTemplate {
+    /// Get relevance percentage for the discovered repo.
+    pub fn rel_pct(&self, relevance: &f64) -> u32 {
+        relevance_pct(*relevance)
+    }
+
+    /// Get relevance color class.
+    pub fn rel_color(&self, relevance: &f64) -> &'static str {
+        relevance_color(*relevance)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

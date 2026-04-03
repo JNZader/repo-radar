@@ -11,6 +11,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub feeds: Vec<FeedConfig>,
     #[serde(default)]
+    pub sources: Vec<SourceConfig>,
+    #[serde(default)]
     pub filter: FilterConfig,
     #[serde(default)]
     pub analyzer: AnalyzerConfig,
@@ -43,6 +45,39 @@ impl AppConfig {
                 let fallback = format!("feeds[{i}]");
                 let label = feed.name.as_deref().unwrap_or(&fallback);
                 errors.push(format!("feed '{label}' has invalid URL: {}", feed.url));
+            }
+        }
+
+        // 1b. Source configs
+        for (i, source) in self.sources.iter().enumerate() {
+            match source {
+                SourceConfig::Rss { url, name, .. } => {
+                    if Url::parse(url).is_err() {
+                        let fallback = format!("sources[{i}]");
+                        let label = name.as_deref().unwrap_or(&fallback);
+                        errors.push(format!("source '{label}' has invalid URL: {url}"));
+                    }
+                }
+                SourceConfig::GitHubTrending { since, .. } => {
+                    if !["daily", "weekly", "monthly"].contains(&since.as_str()) {
+                        errors.push(format!(
+                            "sources[{i}].since '{since}' is not valid (expected: daily, weekly, monthly)"
+                        ));
+                    }
+                }
+                SourceConfig::HackerNews { limit } => {
+                    if *limit == 0 {
+                        errors.push(format!("sources[{i}] hackernews limit must be > 0"));
+                    }
+                }
+                SourceConfig::Reddit { subreddits, limit } => {
+                    if subreddits.is_empty() {
+                        errors.push(format!("sources[{i}] reddit must have at least one subreddit"));
+                    }
+                    if *limit == 0 {
+                        errors.push(format!("sources[{i}] reddit limit must be > 0"));
+                    }
+                }
             }
         }
 
@@ -117,6 +152,62 @@ pub struct FeedConfig {
     pub url: String,
     #[serde(default)]
     pub name: Option<String>,
+}
+
+/// A source configuration with type discriminator.
+///
+/// Uses serde's internally-tagged representation so TOML looks like:
+/// ```toml
+/// [[sources]]
+/// type = "rss"
+/// url = "https://example.com/feed.xml"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SourceConfig {
+    /// RSS/Atom feed source.
+    #[serde(rename = "rss")]
+    Rss {
+        url: String,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// GitHub Trending page scraper.
+    #[serde(rename = "github_trending")]
+    GitHubTrending {
+        #[serde(default)]
+        language: Option<String>,
+        /// Trending period: "daily", "weekly", or "monthly".
+        #[serde(default = "default_trending_since")]
+        since: String,
+    },
+    /// HackerNews "Show HN" stories with GitHub links.
+    #[serde(rename = "hackernews")]
+    HackerNews {
+        /// Maximum number of stories to fetch (default: 30).
+        #[serde(default = "default_hn_limit")]
+        limit: usize,
+    },
+    /// Reddit subreddit posts with GitHub links.
+    #[serde(rename = "reddit")]
+    Reddit {
+        subreddits: Vec<String>,
+        /// Maximum posts per subreddit (default: 25).
+        #[serde(default = "default_reddit_limit")]
+        limit: usize,
+    },
+}
+
+fn default_trending_since() -> String {
+    "daily".into()
+}
+
+const fn default_hn_limit() -> usize {
+    30
+}
+
+const fn default_reddit_limit() -> usize {
+    25
 }
 
 /// Filtering criteria for discovered repos.
@@ -346,6 +437,23 @@ name = "GitHub Trending (Daily)"
 # [[feeds]]
 # url = "https://your-other-feed.example.com/rss"
 # name = "Custom Feed"
+
+# ── Additional sources (optional) ──────────────────────────────
+# Each [[sources]] entry needs a `type` field.
+
+# [[sources]]
+# type = "github_trending"
+# language = "rust"     # optional language filter
+# since = "daily"       # daily | weekly | monthly
+
+# [[sources]]
+# type = "hackernews"
+# limit = 30            # max Show HN stories to fetch
+
+# [[sources]]
+# type = "reddit"
+# subreddits = ["rust", "programming"]
+# limit = 25            # max posts per subreddit
 
 # Filtering criteria
 [filter]
@@ -763,5 +871,221 @@ min_stars = 5
         assert!(!raw.contains("secret-token"));
         assert!(!raw.contains("secret-key"));
         assert!(!raw.contains("secret-user"));
+    }
+
+    // ── Source config tests ─────────────────────────────────────────
+
+    #[test]
+    fn source_config_rss_parses() {
+        let toml_str = r#"
+[[sources]]
+type = "rss"
+url = "https://example.com/feed.xml"
+name = "My Feed"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.sources.len(), 1);
+        match &config.sources[0] {
+            SourceConfig::Rss { url, name } => {
+                assert_eq!(url, "https://example.com/feed.xml");
+                assert_eq!(name.as_deref(), Some("My Feed"));
+            }
+            other => panic!("expected Rss, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_github_trending_parses() {
+        let toml_str = r#"
+[[sources]]
+type = "github_trending"
+language = "rust"
+since = "weekly"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.sources.len(), 1);
+        match &config.sources[0] {
+            SourceConfig::GitHubTrending { language, since } => {
+                assert_eq!(language.as_deref(), Some("rust"));
+                assert_eq!(since, "weekly");
+            }
+            other => panic!("expected GitHubTrending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_github_trending_defaults() {
+        let toml_str = r#"
+[[sources]]
+type = "github_trending"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        match &config.sources[0] {
+            SourceConfig::GitHubTrending { language, since } => {
+                assert!(language.is_none());
+                assert_eq!(since, "daily");
+            }
+            other => panic!("expected GitHubTrending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_hackernews_parses() {
+        let toml_str = r#"
+[[sources]]
+type = "hackernews"
+limit = 50
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        match &config.sources[0] {
+            SourceConfig::HackerNews { limit } => {
+                assert_eq!(*limit, 50);
+            }
+            other => panic!("expected HackerNews, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_hackernews_defaults() {
+        let toml_str = r#"
+[[sources]]
+type = "hackernews"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        match &config.sources[0] {
+            SourceConfig::HackerNews { limit } => {
+                assert_eq!(*limit, 30);
+            }
+            other => panic!("expected HackerNews, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_reddit_parses() {
+        let toml_str = r#"
+[[sources]]
+type = "reddit"
+subreddits = ["rust", "programming"]
+limit = 10
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        match &config.sources[0] {
+            SourceConfig::Reddit { subreddits, limit } => {
+                assert_eq!(subreddits, &["rust", "programming"]);
+                assert_eq!(*limit, 10);
+            }
+            other => panic!("expected Reddit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_config_mixed_sources() {
+        let toml_str = r#"
+[[sources]]
+type = "rss"
+url = "https://example.com/feed.xml"
+
+[[sources]]
+type = "github_trending"
+
+[[sources]]
+type = "hackernews"
+
+[[sources]]
+type = "reddit"
+subreddits = ["rust"]
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.sources.len(), 4);
+        assert!(matches!(&config.sources[0], SourceConfig::Rss { .. }));
+        assert!(matches!(&config.sources[1], SourceConfig::GitHubTrending { .. }));
+        assert!(matches!(&config.sources[2], SourceConfig::HackerNews { .. }));
+        assert!(matches!(&config.sources[3], SourceConfig::Reddit { .. }));
+    }
+
+    #[test]
+    fn source_config_backward_compat_feeds_only() {
+        let toml_str = r#"
+[[feeds]]
+url = "https://example.com/feed.xml"
+name = "Legacy Feed"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.feeds.len(), 1);
+        assert!(config.sources.is_empty());
+    }
+
+    #[test]
+    fn source_config_feeds_and_sources_coexist() {
+        let toml_str = r#"
+[[feeds]]
+url = "https://example.com/feed.xml"
+
+[[sources]]
+type = "github_trending"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.feeds.len(), 1);
+        assert_eq!(config.sources.len(), 1);
+    }
+
+    #[test]
+    fn validate_rejects_invalid_trending_since() {
+        let mut config = AppConfig::default();
+        config.sources.push(SourceConfig::GitHubTrending {
+            language: None,
+            since: "yearly".into(),
+        });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("yearly"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_zero_hn_limit() {
+        let mut config = AppConfig::default();
+        config.sources.push(SourceConfig::HackerNews { limit: 0 });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("limit must be > 0"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_empty_subreddits() {
+        let mut config = AppConfig::default();
+        config.sources.push(SourceConfig::Reddit {
+            subreddits: vec![],
+            limit: 25,
+        });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("at least one subreddit"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_zero_reddit_limit() {
+        let mut config = AppConfig::default();
+        config.sources.push(SourceConfig::Reddit {
+            subreddits: vec!["rust".into()],
+            limit: 0,
+        });
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("reddit limit must be > 0"), "error was: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_valid_sources() {
+        let mut config = AppConfig::default();
+        config.sources.push(SourceConfig::Rss {
+            url: "https://example.com/feed.xml".into(),
+            name: None,
+        });
+        config.sources.push(SourceConfig::GitHubTrending {
+            language: Some("rust".into()),
+            since: "daily".into(),
+        });
+        config.sources.push(SourceConfig::HackerNews { limit: 30 });
+        config.sources.push(SourceConfig::Reddit {
+            subreddits: vec!["rust".into()],
+            limit: 25,
+        });
+        assert!(config.validate().is_ok());
     }
 }

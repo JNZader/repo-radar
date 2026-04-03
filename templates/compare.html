@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Compare — {{ discovered.owner }}/{{ discovered.repo_name }} — repo-radar{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Back link -->
+    <a href="/" class="inline-flex items-center text-sm text-gray-400 hover:text-white transition-colors">
+        &larr; Back to Dashboard
+    </a>
+
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-white">
+            Compare: <span class="text-indigo-400">{{ discovered.owner }}/{{ discovered.repo_name }}</span>
+        </h1>
+        <span class="text-sm font-medium {{ self.rel_color(discovered.overall_relevance) }}">
+            Overall Relevance: {{ self.rel_pct(discovered.overall_relevance) }}%
+        </span>
+    </div>
+
+    <!-- Discovered Repo Card -->
+    <div class="rounded-lg border border-indigo-500/50 bg-gray-800 p-6">
+        <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-indigo-400">Discovered Repository</h2>
+            <a href="{{ discovered.repo_url }}" target="_blank" rel="noopener"
+               class="rounded-md bg-indigo-600 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-500 transition-colors">
+                View on GitHub &rarr;
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+                <p class="text-xs font-medium uppercase text-gray-400">Stars</p>
+                <p class="mt-1 text-xl font-bold text-white">&#11088; {{ discovered.stars }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-medium uppercase text-gray-400">Language</p>
+                <p class="mt-1 text-xl font-bold text-white">
+                    {% match discovered.language %}
+                    {% when Some with (lang) %}{{ lang }}{% when None %}Unknown{% endmatch %}
+                </p>
+            </div>
+            <div>
+                <p class="text-xs font-medium uppercase text-gray-400">Relevance Score</p>
+                <p class="mt-1 text-xl font-bold {{ self.rel_color(discovered.relevance_score) }}">
+                    {{ self.rel_pct(discovered.relevance_score) }}%
+                </p>
+            </div>
+            <div>
+                <p class="text-xs font-medium uppercase text-gray-400">Matches</p>
+                <p class="mt-1 text-xl font-bold text-white">{{ matches.len() }}</p>
+            </div>
+        </div>
+
+        {% match discovered.description %}
+        {% when Some with (desc) %}
+        <div class="mt-4">
+            <p class="text-xs font-medium uppercase text-gray-400">Description</p>
+            <p class="mt-1 text-sm text-gray-300">{{ desc }}</p>
+        </div>
+        {% when None %}
+        {% endmatch %}
+
+        <div class="mt-4">
+            <p class="text-xs font-medium uppercase text-gray-400">Summary</p>
+            <p class="mt-1 text-sm text-gray-300">{{ discovered.summary }}</p>
+        </div>
+
+        {% if !discovered.topics.is_empty() %}
+        <div class="mt-4">
+            <p class="text-xs font-medium uppercase text-gray-400">Topics</p>
+            <div class="mt-1 flex flex-wrap gap-2">
+                {% for topic in discovered.topics %}
+                <span class="inline-flex items-center rounded-full bg-indigo-900/50 px-2.5 py-0.5 text-xs font-medium text-indigo-300">{{ topic }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if !discovered.key_features.is_empty() %}
+        <div class="mt-4">
+            <p class="text-xs font-medium uppercase text-gray-400">Key Features</p>
+            <ul class="mt-1 list-inside list-disc text-sm text-gray-300">
+                {% for feature in discovered.key_features %}
+                <li>{{ feature }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if !discovered.tech_stack.is_empty() %}
+        <div class="mt-4">
+            <p class="text-xs font-medium uppercase text-gray-400">Tech Stack</p>
+            <div class="mt-1 flex flex-wrap gap-2">
+                {% for tech in discovered.tech_stack %}
+                <span class="inline-flex items-center rounded-full bg-gray-700 px-2.5 py-0.5 text-xs font-medium text-gray-200">{{ tech }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Unique Topics -->
+    {% if !unique_topics.is_empty() %}
+    <div class="rounded-lg border border-yellow-500/50 bg-yellow-900/10 p-4">
+        <h3 class="text-sm font-semibold text-yellow-400">Unique Topics (not in your repos)</h3>
+        <div class="mt-2 flex flex-wrap gap-2">
+            {% for topic in unique_topics %}
+            <span class="inline-flex items-center rounded-full bg-yellow-900/40 px-2.5 py-0.5 text-xs font-medium text-yellow-300">{{ topic }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Matched Repos -->
+    {% if !matches.is_empty() %}
+    <div>
+        <h2 class="mb-4 text-lg font-semibold text-white">Your Matching Repositories</h2>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {% for m in matches %}
+            <div class="rounded-lg border border-gray-700 bg-gray-800 p-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-medium text-white">{{ m.own_repo }}</h3>
+                    <span class="text-sm font-medium {{ m.rel_color() }}">{{ m.rel_pct() }}%</span>
+                </div>
+                <p class="mt-2 text-sm text-gray-400">{{ m.reason }}</p>
+                <a href="https://github.com/{{ m.own_repo }}" target="_blank" rel="noopener"
+                   class="mt-2 inline-block text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                    View on GitHub &rarr;
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-lg border border-gray-700 bg-gray-800 p-8 text-center">
+        <p class="text-gray-400">No matching repositories found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
