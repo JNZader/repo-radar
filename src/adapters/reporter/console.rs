@@ -40,10 +40,11 @@ impl Reporter for ConsoleReporter {
                 "".bold()
             );
             println!(
-                " {:<30} {:>8} {:<15} {:>6} {:>8}",
+                " {:<30} {:>8} {:<15} {:<12} {:>6} {:>8}",
                 "Repository".bold().cyan(),
                 "Stars".bold().cyan(),
                 "Language".bold().cyan(),
+                "Category".bold().cyan(),
                 "Score".bold().cyan(),
                 "Matches".bold().cyan(),
             );
@@ -58,6 +59,7 @@ impl Reporter for ConsoleReporter {
                     .language
                     .as_deref()
                     .unwrap_or("N/A");
+                let category = result.analysis.candidate.category.to_string();
                 let score = result.overall_relevance;
                 let match_count = result.matched_repos.len();
 
@@ -70,10 +72,11 @@ impl Reporter for ConsoleReporter {
                 };
 
                 println!(
-                    " {:<30} {:>8} {:<15} {:>6} {:>8}",
+                    " {:<30} {:>8} {:<15} {:<12} {:>6} {:>8}",
                     repo_name.white(),
                     stars.to_string().bright_yellow(),
                     language.magenta(),
+                    category.bright_blue(),
                     score_colored,
                     match_count.to_string().bright_white(),
                 );
@@ -119,6 +122,7 @@ mod tests {
                     archived: false,
                     owner: "owner".into(),
                     repo_name: "awesome-tool".into(),
+                    category: Default::default(),
                 },
                 summary: "An awesome tool for Rust developers".into(),
                 key_features: vec!["fast".into(), "safe".into()],

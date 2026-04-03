@@ -13,6 +13,7 @@ use tokio_stream::StreamExt;
 use tracing::{error, info};
 
 use crate::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer, RepoforgeAnalyzer};
+use crate::adapters::categorizer::{CategorizerAdapter, KeywordCategorizer};
 use crate::adapters::crossref::github_crossref::GitHubCrossRef;
 use crate::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use crate::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
@@ -21,6 +22,7 @@ use crate::adapters::source::{NoopSource, RssSource, SourceAdapter};
 use crate::adapters::web::state::ScanStatus;
 use crate::adapters::web::AppState;
 use crate::config::AppConfig;
+use crate::infra::cache::RepoCache;
 use crate::infra::seen::SeenStore;
 use crate::pipeline::Pipeline;
 
@@ -127,9 +129,21 @@ async fn run_pipeline(
 
     // Filter: GitHub metadata if token available, otherwise Noop
     let filter = if config.general.github_token.is_some() || !config.feeds.is_empty() {
+        let cache_dir = config
+            .cache
+            .cache_dir
+            .clone()
+            .unwrap_or_else(|| config.general.data_dir.join("cache"));
+        let cache_path = cache_dir.join("repo_metadata.json");
+        let cache_ttl = std::time::Duration::from_secs(config.cache.ttl_secs);
+        let repo_cache = RepoCache::load(&cache_path, cache_ttl)
+            .map_err(|e| crate::infra::error::PipelineError::Config(format!("cache: {e}")))?;
+
         let gh_filter = GitHubMetadataFilter::new(
             config.filter.clone(),
             config.general.github_token.as_deref(),
+            Some(repo_cache),
+            config.cache.rate_limit_threshold,
         )
         .map_err(|e| crate::infra::error::PipelineError::Config(format!("filter: {e}")))?;
         FilterAdapter::GitHubMetadata(Box::new(gh_filter))
@@ -159,12 +173,16 @@ async fn run_pipeline(
         CrossRefAdapter::Noop(NoopCrossRef)
     };
 
+    // Categorizer: always use keyword-based categorizer
+    let categorizer = CategorizerAdapter::Keyword(KeywordCategorizer::new());
+
     // For the web scan, use NoopReporter — results are stored in state
     let reporter = ReporterAdapter::Noop(NoopReporter);
 
     let mut pipeline = Pipeline::new(
         source,
         filter,
+        categorizer,
         analyzer,
         crossref,
         reporter,

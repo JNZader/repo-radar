@@ -1,6 +1,41 @@
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+/// Category assigned to a discovered repository.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum RepoCategory {
+    AiAgents,
+    Security,
+    DevOps,
+    RagSearch,
+    Memory,
+    Documentation,
+    Testing,
+    UiUx,
+    Workflow,
+    #[default]
+    Other,
+}
+
+impl fmt::Display for RepoCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AiAgents => write!(f, "AI Agents"),
+            Self::Security => write!(f, "Security"),
+            Self::DevOps => write!(f, "DevOps"),
+            Self::RagSearch => write!(f, "RAG/Search"),
+            Self::Memory => write!(f, "Memory"),
+            Self::Documentation => write!(f, "Documentation"),
+            Self::Testing => write!(f, "Testing"),
+            Self::UiUx => write!(f, "UI/UX"),
+            Self::Workflow => write!(f, "Workflow"),
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
 
 /// A raw entry discovered from a feed source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,6 +58,8 @@ pub struct RepoCandidate {
     pub archived: bool,
     pub owner: String,
     pub repo_name: String,
+    #[serde(default)]
+    pub category: RepoCategory,
 }
 
 /// Result of analyzing a repo's content.
@@ -77,6 +114,7 @@ mod tests {
             archived: false,
             owner: "owner".into(),
             repo_name: "awesome-tool".into(),
+            category: RepoCategory::default(),
         }
     }
 
@@ -160,6 +198,7 @@ mod tests {
             archived: true,
             owner: "owner".into(),
             repo_name: "repo".into(),
+            category: RepoCategory::default(),
         };
         let json = serde_json::to_string(&candidate).unwrap();
         let deserialized: RepoCandidate = serde_json::from_str(&json).unwrap();

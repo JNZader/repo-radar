@@ -139,6 +139,7 @@ mod tests {
             archived: false,
             owner: "owner".into(),
             repo_name: "test-repo".into(),
+            category: Default::default(),
         }
     }
 

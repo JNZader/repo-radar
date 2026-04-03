@@ -54,6 +54,7 @@ fn mock_result(name: &str, stars: u64, lang: &str, relevance: f64) -> CrossRefRe
                 archived: false,
                 owner: "owner".into(),
                 repo_name: name.to_string(),
+            category: Default::default(),
             },
             summary: "Test summary".into(),
             key_features: vec!["fast".into()],

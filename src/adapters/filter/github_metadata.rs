@@ -1,19 +1,25 @@
 #![allow(clippy::manual_async_fn)] // Trait uses RPITIT pattern, impls must match
 
 use std::future::Future;
+use std::sync::Mutex;
 
+use chrono::Utc;
 use tracing::{info, warn};
 use url::Url;
 
 use crate::config::FilterConfig;
 use crate::domain::filter::Filter;
-use crate::domain::model::{FeedEntry, RepoCandidate};
+use crate::domain::model::{FeedEntry, RepoCandidate, RepoCategory};
+use crate::infra::cache::{CachedRepoMetadata, RepoCache};
 use crate::infra::error::FilterError;
+use crate::infra::rate_limit::RateLimitTracker;
 
 /// Fetches GitHub repo metadata and filters candidates by configured criteria.
 pub struct GitHubMetadataFilter {
     config: FilterConfig,
     octocrab: octocrab::Octocrab,
+    cache: Option<Mutex<RepoCache>>,
+    rate_limit: Mutex<RateLimitTracker>,
 }
 
 impl GitHubMetadataFilter {
@@ -22,7 +28,12 @@ impl GitHubMetadataFilter {
     /// # Errors
     ///
     /// Returns `FilterError::GitHubApi` if the octocrab client cannot be built.
-    pub fn new(config: FilterConfig, token: Option<&str>) -> Result<Self, FilterError> {
+    pub fn new(
+        config: FilterConfig,
+        token: Option<&str>,
+        cache: Option<RepoCache>,
+        rate_limit_threshold: u32,
+    ) -> Result<Self, FilterError> {
         let mut builder = octocrab::Octocrab::builder();
         if let Some(t) = token {
             builder = builder.personal_token(t.to_owned());
@@ -30,13 +41,38 @@ impl GitHubMetadataFilter {
         let octocrab = builder
             .build()
             .map_err(|e| FilterError::GitHubApi(format!("failed to build GitHub client: {e}")))?;
-        Ok(Self { config, octocrab })
+        Ok(Self {
+            config,
+            octocrab,
+            cache: cache.map(Mutex::new),
+            rate_limit: Mutex::new(RateLimitTracker::new(rate_limit_threshold)),
+        })
     }
 
     /// Create from an existing octocrab instance (useful for testing with custom base URL).
     #[doc(hidden)]
     pub fn with_octocrab(config: FilterConfig, octocrab: octocrab::Octocrab) -> Self {
-        Self { config, octocrab }
+        Self {
+            config,
+            octocrab,
+            cache: None,
+            rate_limit: Mutex::new(RateLimitTracker::new(100)),
+        }
+    }
+
+    /// Create from an existing octocrab instance with cache (for testing).
+    #[doc(hidden)]
+    pub fn with_octocrab_and_cache(
+        config: FilterConfig,
+        octocrab: octocrab::Octocrab,
+        cache: RepoCache,
+    ) -> Self {
+        Self {
+            config,
+            octocrab,
+            cache: Some(Mutex::new(cache)),
+            rate_limit: Mutex::new(RateLimitTracker::new(100)),
+        }
     }
 }
 
@@ -47,14 +83,39 @@ impl Filter for GitHubMetadataFilter {
     ) -> impl Future<Output = Result<Vec<RepoCandidate>, FilterError>> + Send {
         let config = self.config.clone();
         let octocrab = self.octocrab.clone();
-        async move { filter_entries(&entries, &config, &octocrab).await }
+        // Extract cache/rate_limit references for the async block
+        let cache = &self.cache;
+        let rate_limit = &self.rate_limit;
+        async move {
+            let result = filter_entries(&entries, &config, &octocrab, cache, rate_limit).await;
+            // Save cache after filtering
+            if let Some(cache_mutex) = cache {
+                if let Ok(c) = cache_mutex.lock() {
+                    if let Err(e) = c.save() {
+                        warn!(error = %e, "failed to save repo cache");
+                    }
+                }
+            }
+            result
+        }
     }
+}
+
+/// Metadata extracted from either cache or API, used for filter application.
+struct RepoMetadata {
+    stars: u64,
+    language: Option<String>,
+    topics: Vec<String>,
+    fork: bool,
+    archived: bool,
 }
 
 async fn filter_entries(
     entries: &[FeedEntry],
     config: &FilterConfig,
     octocrab: &octocrab::Octocrab,
+    cache: &Option<Mutex<RepoCache>>,
+    rate_limit: &Mutex<RateLimitTracker>,
 ) -> Result<Vec<RepoCandidate>, FilterError> {
     let mut candidates = Vec::new();
 
@@ -64,65 +125,106 @@ async fn filter_entries(
             continue;
         };
 
-        info!(owner = %owner, repo = %repo, "fetching GitHub metadata");
+        let cache_key = format!("{owner}/{repo}");
 
-        let repo_data = match octocrab.repos(&owner, &repo).get().await {
-            Ok(r) => r,
-            Err(octocrab::Error::GitHub { source, .. })
-                if source.message.contains("Not Found") =>
-            {
-                warn!(owner = %owner, repo = %repo, "repo not found (404), skipping");
-                continue;
-            }
-            Err(e) => {
-                // Check if it's a generic HTTP 404 or other error
-                let err_str = e.to_string();
-                if err_str.contains("404") {
+        // Try cache first
+        let metadata = if let Some(cached) = try_cache_hit(cache, &cache_key) {
+            info!(owner = %owner, repo = %repo, "using cached metadata");
+            cached
+        } else {
+            // Cache miss — fetch from API
+            info!(owner = %owner, repo = %repo, "fetching GitHub metadata (cache miss)");
+
+            let repo_data = match octocrab.repos(&owner, &repo).get().await {
+                Ok(r) => r,
+                Err(octocrab::Error::GitHub { source, .. })
+                    if source.message.contains("Not Found") =>
+                {
                     warn!(owner = %owner, repo = %repo, "repo not found (404), skipping");
                     continue;
                 }
-                return Err(FilterError::GitHubApi(format!(
-                    "failed to fetch {owner}/{repo}: {e}"
-                )));
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("404") {
+                        warn!(owner = %owner, repo = %repo, "repo not found (404), skipping");
+                        continue;
+                    }
+                    return Err(FilterError::GitHubApi(format!(
+                        "failed to fetch {owner}/{repo}: {e}"
+                    )));
+                }
+            };
+
+            // Update rate limit tracker if we can infer from response
+            // (octocrab doesn't expose headers directly, but we track call count)
+            if let Ok(mut rl) = rate_limit.lock() {
+                if let Some(remaining) = rl.remaining() {
+                    rl.update(remaining.saturating_sub(1), Utc::now());
+                }
+            }
+
+            let stars = u64::from(repo_data.stargazers_count.unwrap_or(0));
+            let language = repo_data
+                .language
+                .as_ref()
+                .and_then(|v| v.as_str().map(String::from));
+            let is_fork = repo_data.fork.unwrap_or(false);
+            let is_archived = repo_data.archived.unwrap_or(false);
+            let topics = repo_data.topics.clone().unwrap_or_default();
+
+            // Store in cache
+            if let Some(cache_mutex) = cache {
+                if let Ok(mut c) = cache_mutex.lock() {
+                    c.insert(
+                        cache_key.clone(),
+                        CachedRepoMetadata {
+                            owner: owner.clone(),
+                            repo_name: repo.clone(),
+                            stars,
+                            language: language.clone(),
+                            topics: topics.clone(),
+                            fork: is_fork,
+                            archived: is_archived,
+                            cached_at: Utc::now(),
+                        },
+                    );
+                }
+            }
+
+            RepoMetadata {
+                stars,
+                language,
+                topics,
+                fork: is_fork,
+                archived: is_archived,
             }
         };
 
-        let stars = u64::from(repo_data.stargazers_count.unwrap_or(0));
-        let language = repo_data
-            .language
-            .as_ref()
-            .and_then(|v| v.as_str().map(String::from));
-        let is_fork = repo_data.fork.unwrap_or(false);
-        let is_archived = repo_data.archived.unwrap_or(false);
-        let topics = repo_data
-            .topics
-            .clone()
-            .unwrap_or_default();
-        let _description = repo_data.description.clone();
-
         tracing::debug!(
-            %owner, %repo, stars, ?language, is_fork, is_archived, ?topics,
-            "fetched repo metadata"
+            %owner, %repo, stars = metadata.stars, language = ?metadata.language,
+            fork = metadata.fork, archived = metadata.archived, topics = ?metadata.topics,
+            "repo metadata ready"
         );
 
         // Apply filters
-        if stars < config.min_stars {
-            info!(owner = %owner, repo = %repo, stars, min = config.min_stars, "below min stars, skipping");
+        if metadata.stars < config.min_stars {
+            info!(owner = %owner, repo = %repo, stars = metadata.stars, min = config.min_stars, "below min stars, skipping");
             continue;
         }
 
-        if config.exclude_forks && is_fork {
+        if config.exclude_forks && metadata.fork {
             info!(owner = %owner, repo = %repo, "is a fork, skipping");
             continue;
         }
 
-        if config.exclude_archived && is_archived {
+        if config.exclude_archived && metadata.archived {
             info!(owner = %owner, repo = %repo, "is archived, skipping");
             continue;
         }
 
         if !config.languages.is_empty() {
-            let matches = language
+            let matches = metadata
+                .language
                 .as_ref()
                 .is_some_and(|lang| {
                     config
@@ -134,7 +236,7 @@ async fn filter_entries(
                 info!(
                     owner = %owner,
                     repo = %repo,
-                    language = language.as_deref().unwrap_or("none"),
+                    language = metadata.language.as_deref().unwrap_or("none"),
                     "language not in allowed list, skipping"
                 );
                 continue;
@@ -142,7 +244,7 @@ async fn filter_entries(
         }
 
         if !config.topics.is_empty() {
-            let has_overlap = topics.iter().any(|t| {
+            let has_overlap = metadata.topics.iter().any(|t| {
                 config
                     .topics
                     .iter()
@@ -156,17 +258,35 @@ async fn filter_entries(
 
         candidates.push(RepoCandidate {
             entry: entry.clone(),
-            stars,
-            language,
-            topics,
-            fork: is_fork,
-            archived: is_archived,
+            stars: metadata.stars,
+            language: metadata.language,
+            topics: metadata.topics,
+            fork: metadata.fork,
+            archived: metadata.archived,
             owner: owner.clone(),
             repo_name: repo.clone(),
+            category: RepoCategory::default(),
         });
     }
 
     Ok(candidates)
+}
+
+/// Try to get fresh metadata from cache.
+fn try_cache_hit(cache: &Option<Mutex<RepoCache>>, key: &str) -> Option<RepoMetadata> {
+    let cache_mutex = cache.as_ref()?;
+    let c = cache_mutex.lock().ok()?;
+    if !c.is_fresh(key) {
+        return None;
+    }
+    let cached = c.get(key)?;
+    Some(RepoMetadata {
+        stars: cached.stars,
+        language: cached.language.clone(),
+        topics: cached.topics.clone(),
+        fork: cached.fork,
+        archived: cached.archived,
+    })
 }
 
 /// Parse `owner` and `repo` from a GitHub URL like `https://github.com/owner/repo`.
@@ -513,5 +633,108 @@ mod tests {
     fn parse_owner_repo_non_github() {
         let url = Url::parse("https://gitlab.com/owner/repo").unwrap();
         assert!(parse_owner_repo(&url).is_none());
+    }
+
+    #[tokio::test]
+    async fn cache_hit_skips_api_call() {
+        let server = MockServer::start().await;
+
+        // Do NOT set up any mock — if the API is called, wiremock returns 500
+        // which would fail the test. A cache hit should skip the API entirely.
+
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("cache.json");
+        let mut cache =
+            RepoCache::load(&cache_path, std::time::Duration::from_secs(3600)).unwrap();
+
+        // Pre-populate cache
+        cache.insert(
+            "owner/cached-repo".to_string(),
+            CachedRepoMetadata {
+                owner: "owner".to_string(),
+                repo_name: "cached-repo".to_string(),
+                stars: 500,
+                language: Some("Rust".to_string()),
+                topics: vec!["cli".to_string()],
+                fork: false,
+                archived: false,
+                cached_at: Utc::now(),
+            },
+        );
+
+        let config = FilterConfig {
+            min_stars: 10,
+            languages: vec![],
+            topics: vec![],
+            exclude_forks: false,
+            exclude_archived: false,
+        };
+
+        let octocrab = octocrab::Octocrab::builder()
+            .base_uri(server.uri())
+            .expect("valid URI")
+            .build()
+            .expect("build octocrab");
+        let filter =
+            GitHubMetadataFilter::with_octocrab_and_cache(config, octocrab, cache);
+        let entries = vec![sample_entry("owner", "cached-repo")];
+        let candidates = filter.filter(entries).await.unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].stars, 500);
+        assert_eq!(candidates[0].language.as_deref(), Some("Rust"));
+    }
+
+    #[tokio::test]
+    async fn cache_miss_fetches_and_caches() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/new-repo"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(github_repo_json(
+                    "owner",
+                    "new-repo",
+                    200,
+                    Some("Rust"),
+                    false,
+                    false,
+                    &[],
+                )),
+            )
+            .expect(1) // Exactly one API call
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("cache.json");
+        let cache =
+            RepoCache::load(&cache_path, std::time::Duration::from_secs(3600)).unwrap();
+
+        let config = FilterConfig {
+            min_stars: 0,
+            languages: vec![],
+            topics: vec![],
+            exclude_forks: false,
+            exclude_archived: false,
+        };
+
+        let octocrab = octocrab::Octocrab::builder()
+            .base_uri(server.uri())
+            .expect("valid URI")
+            .build()
+            .expect("build octocrab");
+        let filter =
+            GitHubMetadataFilter::with_octocrab_and_cache(config, octocrab, cache);
+        let entries = vec![sample_entry("owner", "new-repo")];
+        let candidates = filter.filter(entries).await.unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].stars, 200);
+
+        // Verify cache was written to disk
+        let loaded =
+            RepoCache::load(&cache_path, std::time::Duration::from_secs(3600)).unwrap();
+        assert!(loaded.get("owner/new-repo").is_some());
     }
 }

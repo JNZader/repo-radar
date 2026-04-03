@@ -35,7 +35,7 @@ impl MarkdownReporter {
         .expect("write to String cannot fail");
 
         writeln!(buf, "**URL:** {}", candidate.entry.repo_url).expect("write to String cannot fail");
-        writeln!(buf, "**Stars:** {} | **Language:** {}", candidate.stars, candidate.language.as_deref().unwrap_or("N/A"))
+        writeln!(buf, "**Stars:** {} | **Language:** {} | **Category:** {}", candidate.stars, candidate.language.as_deref().unwrap_or("N/A"), candidate.category)
             .expect("write to String cannot fail");
 
         if !candidate.topics.is_empty() {
@@ -138,6 +138,7 @@ mod tests {
                     archived: false,
                     owner: "snapshot".into(),
                     repo_name: "tool".into(),
+                category: Default::default(),
                 },
                 summary: "A powerful snapshot testing tool for Rust projects".into(),
                 key_features: vec!["inline snapshots".into(), "redactions".into()],
@@ -175,6 +176,7 @@ mod tests {
                     archived: false,
                     owner: "owner".into(),
                     repo_name: title.into(),
+                category: Default::default(),
                 },
                 summary: format!("Summary for {title}"),
                 key_features: vec!["fast".into(), "safe".into()],

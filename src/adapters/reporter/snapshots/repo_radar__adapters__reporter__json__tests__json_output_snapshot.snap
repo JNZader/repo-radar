@@ -22,7 +22,8 @@ expression: json
         "fork": false,
         "archived": false,
         "owner": "snapshot",
-        "repo_name": "tool"
+        "repo_name": "tool",
+        "category": "Other"
       },
       "summary": "A powerful snapshot testing tool for Rust projects",
       "key_features": [

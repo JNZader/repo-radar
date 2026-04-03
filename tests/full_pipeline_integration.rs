@@ -212,7 +212,10 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
     let report_dir = dir.path().join("reports");
     let reporter = ReporterAdapter::Markdown(MarkdownReporter::new(report_dir.clone()));
 
-    let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen, None);
+    // Categorizer: Keyword-based categorizer
+    let categorizer = repo_radar::adapters::categorizer::KeywordCategorizer::new();
+
+    let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None);
     let report = pipeline.run().await.unwrap();
 
     // Source fetched 1 entry (the atom feed has 1 GitHub entry)
@@ -306,6 +309,7 @@ async fn crossref_adapter_processes_analysis_results_through_pipeline() {
             archived: false,
             owner: "someone".into(),
             repo_name: "cool-tool".into(),
+        category: Default::default(),
         },
         summary: "A fast CLI tool".into(),
         key_features: vec!["fast".into()],

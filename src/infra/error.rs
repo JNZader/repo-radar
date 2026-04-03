@@ -21,6 +21,12 @@ pub enum FilterError {
 }
 
 #[derive(Debug, Error)]
+pub enum CategorizerError {
+    #[error("categorization failed: {0}")]
+    Failed(String),
+}
+
+#[derive(Debug, Error)]
 pub enum AnalyzerError {
     #[error("repoforge failed for {repo}: {reason}")]
     RepoforgeError { repo: String, reason: String },
@@ -58,6 +64,8 @@ pub enum PipelineError {
     Source(#[from] SourceError),
     #[error("filter stage failed: {0}")]
     Filter(#[from] FilterError),
+    #[error("categorizer stage failed: {0}")]
+    Categorizer(#[from] CategorizerError),
     #[error("analyzer stage failed: {0}")]
     Analyzer(#[from] AnalyzerError),
     #[error("cross-reference stage failed: {0}")]
@@ -68,6 +76,8 @@ pub enum PipelineError {
     Config(String),
     #[error("seen store error: {0}")]
     SeenStore(String),
+    #[error("cache error: {0}")]
+    Cache(String),
 }
 
 #[cfg(test)]
@@ -269,11 +279,13 @@ mod tests {
         let variants: Vec<PipelineError> = vec![
             PipelineError::Source(SourceError::ParseFailed("p".into())),
             PipelineError::Filter(FilterError::GitHubApi("g".into())),
+            PipelineError::Categorizer(CategorizerError::Failed("cat".into())),
             PipelineError::Analyzer(AnalyzerError::LlmError("l".into())),
             PipelineError::CrossRef(CrossRefError::AnalysisFailed("c".into())),
             PipelineError::Reporter(ReporterError::TemplateFailed("r".into())),
             PipelineError::Config("cfg".into()),
             PipelineError::SeenStore("ss".into()),
+            PipelineError::Cache("cache".into()),
         ];
 
         let displays: Vec<String> = variants.iter().map(|v| v.to_string()).collect();
@@ -294,6 +306,7 @@ mod tests {
 
         assert_send_sync::<SourceError>();
         assert_send_sync::<FilterError>();
+        assert_send_sync::<CategorizerError>();
         assert_send_sync::<AnalyzerError>();
         assert_send_sync::<CrossRefError>();
         assert_send_sync::<ReporterError>();

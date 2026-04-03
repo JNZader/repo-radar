@@ -3,6 +3,7 @@ use tokio::sync::broadcast;
 use tracing::{info, instrument};
 
 use crate::domain::analyzer::Analyzer;
+use crate::domain::categorizer::Categorizer;
 use crate::domain::crossref::CrossRef;
 use crate::domain::filter::Filter;
 use crate::domain::reporter::Reporter;
@@ -24,6 +25,7 @@ pub struct PipelineReport {
     pub entries_fetched: usize,
     pub entries_new: usize,
     pub candidates_filtered: usize,
+    pub categorized: usize,
     pub analyzed: usize,
     pub crossrefed: usize,
     pub reported: usize,
@@ -33,10 +35,11 @@ impl std::fmt::Display for PipelineReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Pipeline complete: {} fetched, {} new, {} filtered, {} analyzed, {} cross-referenced, {} reported",
+            "Pipeline complete: {} fetched, {} new, {} filtered, {} categorized, {} analyzed, {} cross-referenced, {} reported",
             self.entries_fetched,
             self.entries_new,
             self.candidates_filtered,
+            self.categorized,
             self.analyzed,
             self.crossrefed,
             self.reported,
@@ -44,17 +47,19 @@ impl std::fmt::Display for PipelineReport {
     }
 }
 
-/// Orchestrates the full discovery pipeline: fetch → dedupe → filter → analyze → crossref → report.
-pub struct Pipeline<S, F, A, X, R>
+/// Orchestrates the full discovery pipeline: fetch → dedupe → filter → categorize → analyze → crossref → report.
+pub struct Pipeline<S, F, C, A, X, R>
 where
     S: Source,
     F: Filter,
+    C: Categorizer,
     A: Analyzer,
     X: CrossRef,
     R: Reporter,
 {
     source: S,
     filter: F,
+    categorizer: C,
     analyzer: A,
     crossref: X,
     reporter: R,
@@ -62,10 +67,11 @@ where
     progress_tx: Option<broadcast::Sender<ScanProgress>>,
 }
 
-impl<S, F, A, X, R> Pipeline<S, F, A, X, R>
+impl<S, F, C, A, X, R> Pipeline<S, F, C, A, X, R>
 where
     S: Source,
     F: Filter,
+    C: Categorizer,
     A: Analyzer,
     X: CrossRef,
     R: Reporter,
@@ -73,6 +79,7 @@ where
     pub fn new(
         source: S,
         filter: F,
+        categorizer: C,
         analyzer: A,
         crossref: X,
         reporter: R,
@@ -82,6 +89,7 @@ where
         Self {
             source,
             filter,
+            categorizer,
             analyzer,
             crossref,
             reporter,
@@ -124,13 +132,18 @@ where
         let entries_new = new_entries.len();
         info!(count = entries_new, "new entries (not previously seen)");
 
-        self.emit_progress("filter", 40, "Filtering candidates...");
+        self.emit_progress("filter", 35, "Filtering candidates...");
         info!("filtering candidates");
         let candidates = self.filter.filter(new_entries).await?;
         let candidates_filtered = candidates.len();
         info!(count = candidates_filtered, "candidates after filter");
 
-        self.emit_progress("analyze", 60, "Analyzing repos...");
+        self.emit_progress("categorize", 45, "Categorizing repos...");
+        info!("categorizing candidates");
+        let candidates = self.categorizer.categorize(candidates)?;
+        info!(count = candidates.len(), "candidates categorized");
+
+        self.emit_progress("analyze", 55, "Analyzing repos...");
         info!("analyzing candidates");
         let analyzed = self.analyzer.analyze(candidates).await?;
         let analyzed_count = analyzed.len();
@@ -162,6 +175,7 @@ where
             entries_fetched,
             entries_new,
             candidates_filtered,
+            categorized: candidates_filtered,
             analyzed: analyzed_count,
             crossrefed: crossrefed_count,
             reported,
@@ -179,6 +193,7 @@ mod tests {
             entries_fetched: 100,
             entries_new: 80,
             candidates_filtered: 50,
+            categorized: 50,
             analyzed: 40,
             crossrefed: 30,
             reported: 25,
@@ -193,6 +208,7 @@ mod tests {
         assert!(output.contains("fetched"));
         assert!(output.contains("new"));
         assert!(output.contains("filtered"));
+        assert!(output.contains("categorized"));
         assert!(output.contains("analyzed"));
         assert!(output.contains("cross-referenced"));
         assert!(output.contains("reported"));
@@ -204,6 +220,7 @@ mod tests {
             entries_fetched: 0,
             entries_new: 0,
             candidates_filtered: 0,
+            categorized: 0,
             analyzed: 0,
             crossrefed: 0,
             reported: 0,
@@ -211,6 +228,7 @@ mod tests {
         assert_eq!(report.entries_fetched, 0);
         assert_eq!(report.entries_new, 0);
         assert_eq!(report.candidates_filtered, 0);
+        assert_eq!(report.categorized, 0);
         assert_eq!(report.analyzed, 0);
         assert_eq!(report.crossrefed, 0);
         assert_eq!(report.reported, 0);
@@ -222,6 +240,7 @@ mod tests {
     #[tokio::test]
     async fn pipeline_emits_progress_events() {
         use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::categorizer::NoopCategorizer;
         use crate::adapters::crossref::NoopCrossRef;
         use crate::adapters::filter::NoopFilter;
         use crate::adapters::reporter::NoopReporter;
@@ -236,6 +255,7 @@ mod tests {
         let mut pipeline = Pipeline::new(
             NoopSource,
             NoopFilter,
+            NoopCategorizer,
             NoopAnalyzer,
             NoopCrossRef,
             NoopReporter,
@@ -253,17 +273,18 @@ mod tests {
         let stage_names: Vec<&str> = stages.iter().map(|(s, _, _)| s.as_str()).collect();
         assert_eq!(
             stage_names,
-            vec!["fetch", "dedupe", "filter", "analyze", "crossref", "report", "complete"]
+            vec!["fetch", "dedupe", "filter", "categorize", "analyze", "crossref", "report", "complete"]
         );
 
         // Verify percentages are monotonically increasing
         let percents: Vec<u8> = stages.iter().map(|(_, p, _)| *p).collect();
-        assert_eq!(percents, vec![10, 20, 40, 60, 80, 90, 100]);
+        assert_eq!(percents, vec![10, 20, 35, 45, 55, 80, 90, 100]);
     }
 
     #[tokio::test]
     async fn pipeline_works_without_progress_channel() {
         use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::categorizer::NoopCategorizer;
         use crate::adapters::crossref::NoopCrossRef;
         use crate::adapters::filter::NoopFilter;
         use crate::adapters::reporter::NoopReporter;
@@ -276,6 +297,7 @@ mod tests {
         let mut pipeline = Pipeline::new(
             NoopSource,
             NoopFilter,
+            NoopCategorizer,
             NoopAnalyzer,
             NoopCrossRef,
             NoopReporter,

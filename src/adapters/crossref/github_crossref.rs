@@ -259,6 +259,7 @@ mod tests {
                 archived: false,
                 owner: "test".into(),
                 repo_name: "test-repo".into(),
+                category: Default::default(),
             },
             summary: "A great test repo".into(),
             key_features: vec!["fast".into()],

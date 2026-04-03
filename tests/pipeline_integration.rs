@@ -1,4 +1,5 @@
 use repo_radar::adapters::analyzer::NoopAnalyzer;
+use repo_radar::adapters::categorizer::NoopCategorizer;
 use repo_radar::adapters::crossref::NoopCrossRef;
 use repo_radar::adapters::filter::NoopFilter;
 use repo_radar::adapters::reporter::NoopReporter;
@@ -15,6 +16,7 @@ async fn pipeline_with_noop_adapters_runs_successfully() {
     let mut pipeline = Pipeline::new(
         NoopSource,
         NoopFilter,
+        NoopCategorizer,
         NoopAnalyzer,
         NoopCrossRef,
         NoopReporter,
@@ -27,6 +29,7 @@ async fn pipeline_with_noop_adapters_runs_successfully() {
     assert_eq!(report.entries_fetched, 0);
     assert_eq!(report.entries_new, 0);
     assert_eq!(report.candidates_filtered, 0);
+    assert_eq!(report.categorized, 0);
     assert_eq!(report.analyzed, 0);
     assert_eq!(report.crossrefed, 0);
     assert_eq!(report.reported, 0);
@@ -41,6 +44,7 @@ async fn pipeline_report_display_format() {
     let mut pipeline = Pipeline::new(
         NoopSource,
         NoopFilter,
+        NoopCategorizer,
         NoopAnalyzer,
         NoopCrossRef,
         NoopReporter,
@@ -55,6 +59,7 @@ async fn pipeline_report_display_format() {
     assert!(display.contains("0 fetched"));
     assert!(display.contains("0 new"));
     assert!(display.contains("0 filtered"));
+    assert!(display.contains("0 categorized"));
     assert!(display.contains("0 analyzed"));
     assert!(display.contains("0 cross-referenced"));
     assert!(display.contains("0 reported"));
@@ -69,6 +74,7 @@ async fn pipeline_persists_seen_store() {
     let mut pipeline = Pipeline::new(
         NoopSource,
         NoopFilter,
+        NoopCategorizer,
         NoopAnalyzer,
         NoopCrossRef,
         NoopReporter,

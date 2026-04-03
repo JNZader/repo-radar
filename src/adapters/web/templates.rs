@@ -248,6 +248,7 @@ mod tests {
                     archived: false,
                     owner: "owner".into(),
                     repo_name: name.to_string(),
+                category: Default::default(),
                 },
                 summary: "Test summary".into(),
                 key_features: vec!["fast".into()],

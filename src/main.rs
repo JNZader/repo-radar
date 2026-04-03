@@ -5,6 +5,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer, RepoforgeAnalyzer};
+use repo_radar::adapters::categorizer::{CategorizerAdapter, KeywordCategorizer};
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
@@ -15,6 +16,7 @@ use repo_radar::adapters::source::{NoopSource, RssSource, SourceAdapter};
 use repo_radar::adapters::web::{self, AppState};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config};
+use repo_radar::infra::cache::RepoCache;
 use repo_radar::infra::seen::SeenStore;
 use repo_radar::pipeline::Pipeline;
 
@@ -149,9 +151,20 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
 
     // Filter: GitHub metadata if token available, otherwise Noop
     let filter = if config.general.github_token.is_some() || !config.feeds.is_empty() {
+        let cache_dir = config
+            .cache
+            .cache_dir
+            .clone()
+            .unwrap_or_else(|| config.general.data_dir.join("cache"));
+        let cache_path = cache_dir.join("repo_metadata.json");
+        let cache_ttl = std::time::Duration::from_secs(config.cache.ttl_secs);
+        let repo_cache = RepoCache::load(&cache_path, cache_ttl).into_diagnostic()?;
+
         let gh_filter = GitHubMetadataFilter::new(
             config.filter.clone(),
             config.general.github_token.as_deref(),
+            Some(repo_cache),
+            config.cache.rate_limit_threshold,
         )
         .into_diagnostic()?;
         FilterAdapter::GitHubMetadata(Box::new(gh_filter))
@@ -187,7 +200,10 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
         _ => ReporterAdapter::Markdown(MarkdownReporter::new(config.reporter.output_dir.clone())),
     };
 
-    let mut pipeline = Pipeline::new(source, filter, analyzer, crossref, reporter, seen, None);
+    // Categorizer: always use keyword-based categorizer
+    let categorizer = CategorizerAdapter::Keyword(KeywordCategorizer::new());
+
+    let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None);
     let report = pipeline.run().await.into_diagnostic()?;
 
     println!("\n{}\n{report}", "Scan complete:".green().bold());

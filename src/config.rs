@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub reporter: ReporterConfig,
     #[serde(default)]
     pub general: GeneralConfig,
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 const VALID_FORMATS: &[&str] = &["markdown", "json", "console"];
@@ -253,6 +255,38 @@ const fn default_backfill_batch_size() -> usize {
     50
 }
 
+/// Cache settings for GitHub API response caching.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    /// Time-to-live for cached entries in seconds (default: 24 hours).
+    #[serde(default = "default_cache_ttl_secs")]
+    pub ttl_secs: u64,
+    /// Directory for cache files. Defaults to `data_dir/cache`.
+    #[serde(default)]
+    pub cache_dir: Option<PathBuf>,
+    /// Log a warning when remaining API calls drop below this threshold.
+    #[serde(default = "default_rate_limit_threshold")]
+    pub rate_limit_threshold: u32,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            ttl_secs: default_cache_ttl_secs(),
+            cache_dir: None,
+            rate_limit_threshold: default_rate_limit_threshold(),
+        }
+    }
+}
+
+const fn default_cache_ttl_secs() -> u64 {
+    86_400 // 24 hours
+}
+
+const fn default_rate_limit_threshold() -> u32 {
+    100
+}
+
 /// Returns the default XDG config path for repo-radar.
 #[must_use]
 pub fn config_path() -> PathBuf {
@@ -344,6 +378,12 @@ format = "markdown"     # markdown | json
 log_level = "info"
 backfill_batch_size = 50
 # GitHub token loaded from REPO_RADAR_GITHUB_TOKEN env var
+
+# API response cache settings
+[cache]
+ttl_secs = 86400            # 24 hours — how long cached metadata stays fresh
+# cache_dir = "./cache"     # defaults to data_dir/cache
+rate_limit_threshold = 100  # warn when remaining API calls drop below this
 "#
     .to_string()
 }
