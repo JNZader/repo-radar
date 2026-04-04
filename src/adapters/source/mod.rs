@@ -56,7 +56,7 @@ impl Source for SourceAdapter {
                 Self::Reddit(s) => Box::pin(s.fetch()),
                 Self::Multi(s) => Box::pin(s.fetch()),
             };
-        async move { fut.await }
+        fut
     }
 
     fn name(&self) -> &str {

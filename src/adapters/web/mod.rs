@@ -20,6 +20,7 @@ use self::auth::ExpectedToken;
 
 use crate::config::AppConfig;
 use crate::domain::model::CrossRefResult;
+use crate::infra::scan_store::ScanResultStore;
 
 use self::state::{ScanProgress, ScanStatus};
 
@@ -30,6 +31,7 @@ pub struct AppState {
     pub scan_status: Arc<Mutex<ScanStatus>>,
     pub last_results: Arc<RwLock<Option<Vec<CrossRefResult>>>>,
     pub progress_tx: broadcast::Sender<ScanProgress>,
+    pub scan_store: Arc<ScanResultStore>,
 }
 
 /// Fallback handler for unmatched routes.
@@ -98,11 +100,15 @@ mod tests {
 
     fn test_state() -> AppState {
         let (progress_tx, _) = broadcast::channel(16);
+        let dir = tempfile::tempdir().unwrap();
         AppState {
             config: AppConfig::default(),
             scan_status: Arc::new(Mutex::new(ScanStatus::default())),
             last_results: Arc::new(RwLock::new(None)),
             progress_tx,
+            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
+                dir.path().join("results"),
+            )),
         }
     }
 

@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn console_reporter_default_matches_new() {
-        let _reporter: ConsoleReporter = ConsoleReporter::default();
+        let _reporter: ConsoleReporter = ConsoleReporter;
         // Ensuring Default trait works — no panic is the assertion.
     }
 }

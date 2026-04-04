@@ -68,22 +68,7 @@ async fn main() -> Result<()> {
             ref format,
             ref output,
         } => {
-            let config = load_config(cli.config.as_deref()).into_diagnostic()?;
-            let output_dir = output
-                .clone()
-                .unwrap_or_else(|| config.reporter.output_dir.clone());
-
-            let _reporter = match format.as_str() {
-                "json" => ReporterAdapter::Json(JsonReporter::new(output_dir)),
-                "console" => ReporterAdapter::Console(ConsoleReporter::new()),
-                _ => ReporterAdapter::Markdown(MarkdownReporter::new(output_dir)),
-            };
-
-            eprintln!(
-                "{} Report generation requires cached scan results, which are not yet available. \
-                 Run `repo-radar scan` first, then re-run this command once caching is implemented.",
-                "TODO:".yellow().bold()
-            );
+            handle_report(cli.config.as_deref(), format, output.as_deref()).await?;
         }
     }
 
@@ -216,7 +201,20 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     let categorizer = CategorizerAdapter::Keyword(KeywordCategorizer::new());
 
     let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None);
-    let report = pipeline.run().await.into_diagnostic()?;
+    let (report, results) = pipeline.run().await.into_diagnostic()?;
+
+    // Persist scan results for later use by `report` and `ideas` commands
+    let store = repo_radar::infra::scan_store::ScanResultStore::new(
+        config.general.data_dir.join("results"),
+    );
+    if let Err(e) = store.save(&results) {
+        eprintln!(
+            "{} Failed to cache scan results: {e}",
+            "Warning:".yellow().bold()
+        );
+    } else {
+        info!(count = results.len(), "scan results cached");
+    }
 
     println!("\n{}\n{report}", "Scan complete:".green().bold());
 
@@ -249,14 +247,11 @@ async fn handle_ideas(
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "json")
                     && path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("report-"))
+                    && let Ok(meta) = path.metadata()
+                    && let Ok(modified) = meta.modified()
+                    && latest.as_ref().is_none_or(|(t, _)| modified > *t)
                 {
-                    if let Ok(meta) = path.metadata() {
-                        if let Ok(modified) = meta.modified() {
-                            if latest.as_ref().is_none_or(|(t, _)| modified > *t) {
-                                latest = Some((modified, path));
-                            }
-                        }
-                    }
+                    latest = Some((modified, path));
                 }
             }
         }
@@ -348,6 +343,56 @@ async fn handle_ideas(
     Ok(())
 }
 
+async fn handle_report(
+    config_path_override: Option<&std::path::Path>,
+    format: &str,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    use repo_radar::domain::reporter::Reporter;
+
+    let config = load_config(config_path_override).into_diagnostic()?;
+    let store = repo_radar::infra::scan_store::ScanResultStore::new(
+        config.general.data_dir.join("results"),
+    );
+
+    let scans = store.list().into_diagnostic()?;
+    if scans.is_empty() {
+        eprintln!(
+            "{} No cached scan results found. Run {} first.",
+            "Error:".red().bold(),
+            "repo-radar scan".cyan().bold(),
+        );
+        return Ok(());
+    }
+
+    // Load the most recent scan
+    let latest = &scans[0];
+    let results = store.load(&latest.id).into_diagnostic()?;
+    info!(id = %latest.id, count = results.len(), "loaded cached scan results");
+
+    let output_dir = output
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| config.reporter.output_dir.clone());
+
+    let reporter = match format {
+        "json" => ReporterAdapter::Json(JsonReporter::new(output_dir.clone())),
+        "console" => ReporterAdapter::Console(ConsoleReporter::new()),
+        _ => ReporterAdapter::Markdown(MarkdownReporter::new(output_dir.clone())),
+    };
+
+    reporter.report(&results).await.into_diagnostic()?;
+
+    println!(
+        "{} Report generated ({} format, {} results) in {}",
+        "Done:".green().bold(),
+        format.bold(),
+        results.len().to_string().bold(),
+        output_dir.display(),
+    );
+
+    Ok(())
+}
+
 async fn handle_serve(
     config_path_override: Option<&std::path::Path>,
     port: u16,
@@ -356,14 +401,35 @@ async fn handle_serve(
     let config = load_config(config_path_override).into_diagnostic()?;
     info!("config loaded for web server");
 
+    let scan_store = std::sync::Arc::new(repo_radar::infra::scan_store::ScanResultStore::new(
+        config.general.data_dir.join("results"),
+    ));
+
+    // Pre-load the most recent scan results so the dashboard shows data on startup
+    let cached_results = match scan_store.load_latest() {
+        Ok(Some(results)) => {
+            info!(count = results.len(), "loaded cached scan results for dashboard");
+            Some(results)
+        }
+        Ok(None) => {
+            info!("no cached scan results found");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(%e, "failed to load cached scan results");
+            None
+        }
+    };
+
     let (progress_tx, _) = tokio::sync::broadcast::channel(64);
     let state = AppState {
         config,
         scan_status: std::sync::Arc::new(tokio::sync::Mutex::new(
             repo_radar::adapters::web::state::ScanStatus::default(),
         )),
-        last_results: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+        last_results: std::sync::Arc::new(tokio::sync::RwLock::new(cached_results)),
         progress_tx,
+        scan_store,
     };
 
     let app = web::router(state);

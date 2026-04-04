@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use tracing::{info, warn};
+use tracing::info;
 use url::Url;
 
 use crate::domain::model::FeedEntry;
@@ -156,9 +156,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    fn sample_trending_html(base_url: &str) -> String {
-        format!(
-            r#"<html>
+    fn sample_trending_html(_base_url: &str) -> String {
+        r#"<html>
 <body>
 <div class="Box">
   <article class="Box-row">
@@ -190,7 +189,7 @@ mod tests {
 </div>
 </body>
 </html>"#
-        )
+            .to_string()
     }
 
     #[tokio::test]

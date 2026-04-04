@@ -24,7 +24,7 @@ async fn pipeline_with_noop_adapters_runs_successfully() {
         None,
     );
 
-    let report = pipeline.run().await.unwrap();
+    let (report, results) = pipeline.run().await.unwrap();
 
     assert_eq!(report.entries_fetched, 0);
     assert_eq!(report.entries_new, 0);
@@ -33,6 +33,7 @@ async fn pipeline_with_noop_adapters_runs_successfully() {
     assert_eq!(report.analyzed, 0);
     assert_eq!(report.crossrefed, 0);
     assert_eq!(report.reported, 0);
+    assert!(results.is_empty());
 }
 
 #[tokio::test]
@@ -52,7 +53,7 @@ async fn pipeline_report_display_format() {
         None,
     );
 
-    let report = pipeline.run().await.unwrap();
+    let (report, _results) = pipeline.run().await.unwrap();
     let display = report.to_string();
 
     assert!(display.contains("Pipeline complete"));
@@ -82,7 +83,7 @@ async fn pipeline_persists_seen_store() {
         None,
     );
 
-    pipeline.run().await.unwrap();
+    let _ = pipeline.run().await.unwrap();
 
     // Even with no entries, the seen store file should be written
     assert!(seen_path.exists());

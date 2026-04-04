@@ -155,20 +155,20 @@ async fn fetch_single_subreddit(
         }
 
         // Fall back: scan selftext for GitHub URLs
-        if let Some(ref selftext) = post.selftext {
-            if let Some(github_url) = extract_github_url_from_text(selftext) {
-                let published = post
-                    .created_utc
-                    .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0));
+        if let Some(ref selftext) = post.selftext
+            && let Some(github_url) = extract_github_url_from_text(selftext)
+        {
+            let published = post
+                .created_utc
+                .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0));
 
-                entries.push(FeedEntry {
-                    title: post.title.clone(),
-                    repo_url: github_url,
-                    description: Some(truncate_text(selftext, 200)),
-                    published,
-                    source_name: "reddit".to_string(),
-                });
-            }
+            entries.push(FeedEntry {
+                title: post.title.clone(),
+                repo_url: github_url,
+                description: Some(truncate_text(selftext, 200)),
+                published,
+                source_name: "reddit".to_string(),
+            });
         }
     }
 

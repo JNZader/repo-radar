@@ -216,7 +216,7 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
     let categorizer = repo_radar::adapters::categorizer::KeywordCategorizer::new();
 
     let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None);
-    let report = pipeline.run().await.unwrap();
+    let (report, _results) = pipeline.run().await.unwrap();
 
     // Source fetched 1 entry (the atom feed has 1 GitHub entry)
     assert_eq!(report.entries_fetched, 1, "should fetch 1 entry from RSS");

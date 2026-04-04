@@ -411,23 +411,30 @@ mod tests {
 
     fn test_state() -> AppState {
         let (progress_tx, _) = broadcast::channel(16);
+        let dir = tempfile::tempdir().unwrap();
         AppState {
             config: AppConfig::default(),
             scan_status: Arc::new(Mutex::new(ScanStatus::default())),
             last_results: Arc::new(RwLock::new(None)),
             progress_tx,
+            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
+                dir.path().join("results"),
+            )),
         }
     }
 
     fn test_state_with_output_dir(dir: PathBuf) -> AppState {
         let (progress_tx, _) = broadcast::channel(16);
         let mut config = AppConfig::default();
-        config.reporter.output_dir = dir;
+        config.reporter.output_dir = dir.clone();
         AppState {
             config,
             scan_status: Arc::new(Mutex::new(ScanStatus::default())),
             last_results: Arc::new(RwLock::new(None)),
             progress_tx,
+            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
+                dir.join("results"),
+            )),
         }
     }
 
@@ -724,7 +731,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("report.json"), "{}").unwrap();
         std::fs::write(dir.path().join("notes.txt"), "hello").unwrap();
-        std::fs::write(dir.path().join("image.png"), &[0u8; 10]).unwrap();
+        std::fs::write(dir.path().join("image.png"), [0u8; 10]).unwrap();
 
         let reports = list_reports(&dir.path().to_path_buf());
         assert_eq!(reports.len(), 1);

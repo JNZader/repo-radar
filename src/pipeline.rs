@@ -76,6 +76,7 @@ where
     X: CrossRef,
     R: Reporter,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source: S,
         filter: F,
@@ -112,11 +113,16 @@ where
 
     /// Execute the full pipeline: fetch -> dedupe -> filter -> analyze -> crossref -> report.
     ///
+    /// Returns a tuple of `(PipelineReport, Vec<CrossRefResult>)` so callers
+    /// can persist the results independently of the reporter stage.
+    ///
     /// # Errors
     ///
     /// Returns `PipelineError` if any stage fails. Subsequent stages are not executed.
     #[instrument(skip_all, name = "pipeline")]
-    pub async fn run(&mut self) -> Result<PipelineReport, PipelineError> {
+    pub async fn run(
+        &mut self,
+    ) -> Result<(PipelineReport, Vec<crate::domain::model::CrossRefResult>), PipelineError> {
         self.emit_progress("fetch", 10, "Fetching feeds...");
         info!("fetching entries from source");
         let entries = self.source.fetch().await?;
@@ -171,7 +177,7 @@ where
 
         self.emit_progress("complete", 100, "Scan complete");
 
-        Ok(PipelineReport {
+        let report = PipelineReport {
             entries_fetched,
             entries_new,
             candidates_filtered,
@@ -179,7 +185,9 @@ where
             analyzed: analyzed_count,
             crossrefed: crossrefed_count,
             reported,
-        })
+        };
+
+        Ok((report, crossrefed))
     }
 }
 
@@ -263,7 +271,7 @@ mod tests {
             Some(tx),
         );
 
-        pipeline.run().await.unwrap();
+        let _ = pipeline.run().await.unwrap();
 
         let mut stages = Vec::new();
         while let Ok(progress) = rx.try_recv() {
@@ -305,7 +313,7 @@ mod tests {
             None,
         );
 
-        let report = pipeline.run().await.unwrap();
+        let (report, results) = pipeline.run().await.unwrap();
 
         assert_eq!(report.entries_fetched, 0);
         assert_eq!(report.entries_new, 0);
@@ -313,5 +321,6 @@ mod tests {
         assert_eq!(report.analyzed, 0);
         assert_eq!(report.crossrefed, 0);
         assert_eq!(report.reported, 0);
+        assert!(results.is_empty());
     }
 }

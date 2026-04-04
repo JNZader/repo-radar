@@ -242,11 +242,15 @@ mod tests {
 
     fn test_state_with_results(results: Vec<CrossRefResult>) -> AppState {
         let (progress_tx, _) = broadcast::channel(16);
+        let dir = tempfile::tempdir().unwrap();
         AppState {
             config: AppConfig::default(),
             scan_status: Arc::new(Mutex::new(ScanStatus::default())),
             last_results: Arc::new(RwLock::new(Some(results))),
             progress_tx,
+            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
+                dir.path().join("results"),
+            )),
         }
     }
 

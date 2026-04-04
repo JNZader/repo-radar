@@ -89,12 +89,11 @@ impl Filter for GitHubMetadataFilter {
         async move {
             let result = filter_entries(&entries, &config, &octocrab, cache, rate_limit).await;
             // Save cache after filtering
-            if let Some(cache_mutex) = cache {
-                if let Ok(c) = cache_mutex.lock() {
-                    if let Err(e) = c.save() {
-                        warn!(error = %e, "failed to save repo cache");
-                    }
-                }
+            if let Some(cache_mutex) = cache
+                && let Ok(c) = cache_mutex.lock()
+                && let Err(e) = c.save()
+            {
+                warn!(error = %e, "failed to save repo cache");
             }
             result
         }
@@ -157,10 +156,10 @@ async fn filter_entries(
 
             // Update rate limit tracker if we can infer from response
             // (octocrab doesn't expose headers directly, but we track call count)
-            if let Ok(mut rl) = rate_limit.lock() {
-                if let Some(remaining) = rl.remaining() {
-                    rl.update(remaining.saturating_sub(1), Utc::now());
-                }
+            if let Ok(mut rl) = rate_limit.lock()
+                && let Some(remaining) = rl.remaining()
+            {
+                rl.update(remaining.saturating_sub(1), Utc::now());
             }
 
             let stars = u64::from(repo_data.stargazers_count.unwrap_or(0));
@@ -173,22 +172,22 @@ async fn filter_entries(
             let topics = repo_data.topics.clone().unwrap_or_default();
 
             // Store in cache
-            if let Some(cache_mutex) = cache {
-                if let Ok(mut c) = cache_mutex.lock() {
-                    c.insert(
-                        cache_key.clone(),
-                        CachedRepoMetadata {
-                            owner: owner.clone(),
-                            repo_name: repo.clone(),
-                            stars,
-                            language: language.clone(),
-                            topics: topics.clone(),
-                            fork: is_fork,
-                            archived: is_archived,
-                            cached_at: Utc::now(),
-                        },
-                    );
-                }
+            if let Some(cache_mutex) = cache
+                && let Ok(mut c) = cache_mutex.lock()
+            {
+                c.insert(
+                    cache_key.clone(),
+                    CachedRepoMetadata {
+                        owner: owner.clone(),
+                        repo_name: repo.clone(),
+                        stars,
+                        language: language.clone(),
+                        topics: topics.clone(),
+                        fork: is_fork,
+                        archived: is_archived,
+                        cached_at: Utc::now(),
+                    },
+                );
             }
 
             RepoMetadata {
@@ -311,7 +310,7 @@ mod tests {
 
     fn sample_entry(owner: &str, repo: &str) -> FeedEntry {
         FeedEntry {
-            title: format!("{repo}"),
+            title: repo.to_string(),
             repo_url: Url::parse(&format!("https://github.com/{owner}/{repo}")).unwrap(),
             description: Some("A test repo".into()),
             published: Some(Utc::now()),

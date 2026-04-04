@@ -54,6 +54,7 @@ pub async fn start_scan(State(state): State<AppState>) -> Response {
     let progress_tx = state.progress_tx.clone();
     let scan_status = state.scan_status.clone();
     let last_results = state.last_results.clone();
+    let scan_store = state.scan_store.clone();
 
     // Spawn background task
     tokio::spawn(async move {
@@ -63,7 +64,12 @@ pub async fn start_scan(State(state): State<AppState>) -> Response {
             Ok((report, crossref_results)) => {
                 info!(%report, "scan completed successfully");
 
-                // Store results
+                // Persist results to disk
+                if let Err(e) = scan_store.save(&crossref_results) {
+                    error!(%e, "failed to persist scan results to disk");
+                }
+
+                // Store results in memory for the current session
                 {
                     let mut results = last_results.write().await;
                     *results = Some(crossref_results);
@@ -190,13 +196,9 @@ async fn run_pipeline(
         Some(progress_tx),
     );
 
-    let report = pipeline.run().await?;
+    let (report, crossref_results) = pipeline.run().await?;
 
-    // The pipeline doesn't return the crossref results directly,
-    // but with NoopReporter we get no file output. For now, return
-    // empty results — the pipeline would need refactoring to expose them.
-    // TODO: refactor pipeline to return results alongside report.
-    Ok((report, Vec::new()))
+    Ok((report, crossref_results))
 }
 
 type SseStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
@@ -251,11 +253,15 @@ mod tests {
 
     fn test_state() -> AppState {
         let (progress_tx, _) = broadcast::channel(16);
+        let dir = tempfile::tempdir().unwrap();
         AppState {
             config: AppConfig::default(),
             scan_status: Arc::new(Mutex::new(ScanStatus::default())),
             last_results: Arc::new(RwLock::new(None)),
             progress_tx,
+            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
+                dir.path().join("results"),
+            )),
         }
     }
 
