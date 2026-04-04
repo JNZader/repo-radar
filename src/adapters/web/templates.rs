@@ -2,6 +2,7 @@ use askama::Template;
 use serde::Serialize;
 use std::collections::HashMap;
 
+use crate::domain::diff::ScanDiff;
 use crate::domain::model::CrossRefResult;
 
 /// Aggregated statistics for the dashboard view.
@@ -329,6 +330,72 @@ impl CompareTemplate {
     /// Get relevance color class.
     pub fn rel_color(&self, relevance: &f64) -> &'static str {
         relevance_color(*relevance)
+    }
+}
+
+// ── Diff view ────────────────────────────────────────────────────────────────
+
+/// Full-page diff view template.
+#[derive(Template)]
+#[template(path = "diff.html")]
+pub struct DiffTemplate {
+    pub diff: ScanDiff,
+}
+
+impl DiffTemplate {
+    /// Format a score delta as a signed percentage string.
+    pub fn fmt_delta(&self, delta: f64) -> String {
+        fmt_score_delta(delta)
+    }
+
+    /// CSS color class for a score delta.
+    pub fn delta_color(&self, delta: f64) -> &'static str {
+        score_delta_color(delta)
+    }
+
+    pub fn rel_pct(&self, relevance: &f64) -> u32 {
+        relevance_pct(*relevance)
+    }
+}
+
+/// HTMX-swappable diff table partial template.
+#[derive(Template)]
+#[template(path = "partials/diff_table.html")]
+pub struct DiffTableTemplate {
+    pub diff: ScanDiff,
+}
+
+impl DiffTableTemplate {
+    pub fn fmt_delta(&self, delta: f64) -> String {
+        fmt_score_delta(delta)
+    }
+
+    pub fn delta_color(&self, delta: f64) -> &'static str {
+        score_delta_color(delta)
+    }
+
+    pub fn rel_pct(&self, relevance: &f64) -> u32 {
+        relevance_pct(*relevance)
+    }
+}
+
+/// Format a score delta as a signed percentage string (e.g. "+12.3%" or "-5.0%").
+pub fn fmt_score_delta(delta: f64) -> String {
+    if delta >= 0.0 {
+        format!("+{:.1}%", delta * 100.0)
+    } else {
+        format!("{:.1}%", delta * 100.0)
+    }
+}
+
+/// CSS color class for a score delta value.
+pub fn score_delta_color(delta: f64) -> &'static str {
+    if delta >= 0.05 {
+        "text-green-400"
+    } else if delta <= -0.05 {
+        "text-red-400"
+    } else {
+        "text-gray-400"
     }
 }
 

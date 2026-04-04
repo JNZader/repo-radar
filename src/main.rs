@@ -70,6 +70,17 @@ async fn main() -> Result<()> {
         } => {
             handle_report(cli.config.as_deref(), format, output.as_deref()).await?;
         }
+        Command::Diff {
+            ref scan_a,
+            ref scan_b,
+        } => {
+            handle_diff(
+                cli.config.as_deref(),
+                scan_a.as_deref(),
+                scan_b.as_deref(),
+            )
+            .await?;
+        }
     }
 
     Ok(())
@@ -442,6 +453,136 @@ async fn handle_serve(
     );
 
     axum::serve(listener, app).await.into_diagnostic()?;
+
+    Ok(())
+}
+
+async fn handle_diff(
+    config_path_override: Option<&std::path::Path>,
+    scan_a_id: Option<&str>,
+    scan_b_id: Option<&str>,
+) -> Result<()> {
+    use repo_radar::domain::diff::compute_diff;
+
+    let config = load_config(config_path_override).into_diagnostic()?;
+    let store = repo_radar::infra::scan_store::ScanResultStore::new(
+        config.general.data_dir.join("results"),
+    );
+
+    let scans = store.list().into_diagnostic()?;
+
+    if scans.len() < 2 {
+        eprintln!(
+            "{} Need at least 2 saved scans to diff. Run {} first.",
+            "Error:".red().bold(),
+            "repo-radar scan".cyan().bold(),
+        );
+        return Ok(());
+    }
+
+    // Resolve IDs — default: second-latest vs latest (scans are newest-first)
+    let meta_b = if let Some(id) = scan_b_id {
+        scans
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| miette::miette!("scan not found: {id}"))?
+    } else {
+        scans[0].clone()
+    };
+
+    let meta_a = if let Some(id) = scan_a_id {
+        scans
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| miette::miette!("scan not found: {id}"))?
+    } else {
+        scans[1].clone()
+    };
+
+    let results_a = store.load(&meta_a.id).into_diagnostic()?;
+    let results_b = store.load(&meta_b.id).into_diagnostic()?;
+
+    let diff = compute_diff(meta_a.clone(), meta_b.clone(), &results_a, &results_b);
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    println!(
+        "\n{} {} → {}",
+        "Scan diff:".bold().cyan(),
+        meta_a.id.dimmed(),
+        meta_b.id.dimmed(),
+    );
+    println!(
+        "  {} {} new  {} removed  {} changed  {} unchanged\n",
+        "Summary:".bold(),
+        diff.new_repos.len().to_string().green().bold(),
+        diff.removed_repos.len().to_string().red().bold(),
+        diff.changed_repos.len().to_string().yellow().bold(),
+        diff.unchanged_count.to_string().dimmed(),
+    );
+
+    // ── New repos ────────────────────────────────────────────────────────────
+    if !diff.new_repos.is_empty() {
+        println!("{}", "New Repositories:".green().bold());
+        for r in &diff.new_repos {
+            let c = &r.analysis.candidate;
+            println!(
+                "  {} {}/{} (relevance: {:.0}%)",
+                "+".green().bold(),
+                c.owner.white(),
+                c.repo_name.white(),
+                r.overall_relevance * 100.0,
+            );
+        }
+        println!();
+    }
+
+    // ── Removed repos ────────────────────────────────────────────────────────
+    if !diff.removed_repos.is_empty() {
+        println!("{}", "Removed Repositories:".red().bold());
+        for r in &diff.removed_repos {
+            let c = &r.analysis.candidate;
+            println!(
+                "  {} {}/{} (was: {:.0}%)",
+                "-".red().bold(),
+                c.owner.dimmed(),
+                c.repo_name.dimmed(),
+                r.overall_relevance * 100.0,
+            );
+        }
+        println!();
+    }
+
+    // ── Changed repos ────────────────────────────────────────────────────────
+    if !diff.changed_repos.is_empty() {
+        println!("{}", "Changed Repositories:".yellow().bold());
+        for repo_diff in &diff.changed_repos {
+            let c = &repo_diff.result.analysis.candidate;
+            let delta_str = if repo_diff.score_delta >= 0.0 {
+                format!("+{:.1}%", repo_diff.score_delta * 100.0)
+                    .green()
+                    .bold()
+                    .to_string()
+            } else {
+                format!("{:.1}%", repo_diff.score_delta * 100.0)
+                    .red()
+                    .bold()
+                    .to_string()
+            };
+            println!(
+                "  ~ {}/{} score: {delta_str}",
+                c.owner.white(),
+                c.repo_name.white(),
+            );
+            if !repo_diff.new_ideas.is_empty() {
+                for idea in &repo_diff.new_ideas {
+                    println!("      {} {}", "idea:".cyan(), idea);
+                }
+            }
+        }
+        println!();
+    }
 
     Ok(())
 }

@@ -71,6 +71,17 @@ pub enum Command {
         print: bool,
     },
 
+    /// Compare two scan snapshots and show what changed.
+    Diff {
+        /// ID of the earlier scan (defaults to second-latest).
+        #[arg(long)]
+        scan_a: Option<String>,
+
+        /// ID of the later scan (defaults to latest).
+        #[arg(long)]
+        scan_b: Option<String>,
+    },
+
     /// Start the web dashboard server.
     Serve {
         /// Port to listen on.

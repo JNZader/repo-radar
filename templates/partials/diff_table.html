@@ -1,0 +1,124 @@
+<!-- New Repositories -->
+{% if !diff.new_repos.is_empty() %}
+<section class="space-y-2">
+    <h2 class="text-lg font-semibold text-green-400">New Repositories ({{ diff.new_repos.len() }})</h2>
+    <div class="overflow-x-auto rounded-lg border border-green-500/30">
+        <table class="min-w-full divide-y divide-gray-700">
+            <thead class="bg-gray-800">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Repository</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Stars</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Relevance</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Ideas</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700 bg-gray-900">
+                {% for r in diff.new_repos %}
+                <tr class="hover:bg-gray-800 transition-colors">
+                    <td class="px-4 py-3">
+                        <a href="https://github.com/{{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}"
+                           target="_blank" rel="noopener"
+                           class="font-medium text-green-400 hover:text-green-300 transition-colors">
+                            {{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}
+                        </a>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-300">&#11088; {{ r.analysis.candidate.stars }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-green-400">
+                        {{ self.rel_pct(r.overall_relevance) }}%
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-400">{{ r.ideas.len() }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+<!-- Removed Repositories -->
+{% if !diff.removed_repos.is_empty() %}
+<section class="space-y-2">
+    <h2 class="text-lg font-semibold text-red-400">Removed Repositories ({{ diff.removed_repos.len() }})</h2>
+    <div class="overflow-x-auto rounded-lg border border-red-500/30">
+        <table class="min-w-full divide-y divide-gray-700">
+            <thead class="bg-gray-800">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Repository</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Stars</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Last Relevance</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700 bg-gray-900">
+                {% for r in diff.removed_repos %}
+                <tr class="hover:bg-gray-800 transition-colors">
+                    <td class="px-4 py-3">
+                        <a href="https://github.com/{{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}"
+                           target="_blank" rel="noopener"
+                           class="font-medium text-red-400 hover:text-red-300 transition-colors">
+                            {{ r.analysis.candidate.owner }}/{{ r.analysis.candidate.repo_name }}
+                        </a>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-300">&#11088; {{ r.analysis.candidate.stars }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-400">
+                        {{ self.rel_pct(r.overall_relevance) }}%
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+<!-- Changed Repositories -->
+{% if !diff.changed_repos.is_empty() %}
+<section class="space-y-2">
+    <h2 class="text-lg font-semibold text-yellow-400">Changed Repositories ({{ diff.changed_repos.len() }})</h2>
+    <div class="overflow-x-auto rounded-lg border border-yellow-500/30">
+        <table class="min-w-full divide-y divide-gray-700">
+            <thead class="bg-gray-800">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Repository</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Stars</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Score Change</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">New Ideas</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700 bg-gray-900">
+                {% for rd in diff.changed_repos %}
+                <tr class="hover:bg-gray-800 transition-colors">
+                    <td class="px-4 py-3">
+                        <a href="https://github.com/{{ rd.result.analysis.candidate.owner }}/{{ rd.result.analysis.candidate.repo_name }}"
+                           target="_blank" rel="noopener"
+                           class="font-medium text-white hover:text-indigo-300 transition-colors">
+                            {{ rd.result.analysis.candidate.owner }}/{{ rd.result.analysis.candidate.repo_name }}
+                        </a>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-300">&#11088; {{ rd.result.analysis.candidate.stars }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-sm font-bold {{ self.delta_color(rd.score_delta) }}">
+                        {{ self.fmt_delta(rd.score_delta) }}
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-400">
+                        {% if !rd.new_ideas.is_empty() %}
+                        <ul class="list-inside list-disc space-y-0.5">
+                            {% for idea in rd.new_ideas %}
+                            <li class="text-indigo-300">{{ idea }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <span class="text-gray-600">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if diff.new_repos.is_empty() && diff.removed_repos.is_empty() && diff.changed_repos.is_empty() %}
+<div class="rounded-lg border border-gray-700 bg-gray-800 p-8 text-center">
+    <p class="text-gray-400">No significant changes detected between the two scans.</p>
+</div>
+{% endif %}
