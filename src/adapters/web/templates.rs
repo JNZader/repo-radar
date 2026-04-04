@@ -344,13 +344,13 @@ pub struct DiffTemplate {
 
 impl DiffTemplate {
     /// Format a score delta as a signed percentage string.
-    pub fn fmt_delta(&self, delta: f64) -> String {
-        fmt_score_delta(delta)
+    pub fn fmt_delta(&self, delta: &f64) -> String {
+        fmt_score_delta(*delta)
     }
 
     /// CSS color class for a score delta.
-    pub fn delta_color(&self, delta: f64) -> &'static str {
-        score_delta_color(delta)
+    pub fn delta_color(&self, delta: &f64) -> &'static str {
+        score_delta_color(*delta)
     }
 
     pub fn rel_pct(&self, relevance: &f64) -> u32 {
@@ -366,12 +366,12 @@ pub struct DiffTableTemplate {
 }
 
 impl DiffTableTemplate {
-    pub fn fmt_delta(&self, delta: f64) -> String {
-        fmt_score_delta(delta)
+    pub fn fmt_delta(&self, delta: &f64) -> String {
+        fmt_score_delta(*delta)
     }
 
-    pub fn delta_color(&self, delta: f64) -> &'static str {
-        score_delta_color(delta)
+    pub fn delta_color(&self, delta: &f64) -> &'static str {
+        score_delta_color(*delta)
     }
 
     pub fn rel_pct(&self, relevance: &f64) -> u32 {
