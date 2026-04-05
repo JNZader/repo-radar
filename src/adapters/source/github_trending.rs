@@ -83,71 +83,74 @@ async fn fetch_trending(
 
 /// Parse GitHub trending HTML to extract repo links.
 ///
-/// The trending page contains `<h2>` elements with `<a>` tags whose href
-/// follows the pattern `/{owner}/{repo}`. We look for links inside elements
-/// with the class `h3` or within article tags that contain repo paths.
+/// Each trending repo is wrapped in an `<article>` tag. Inside, the first
+/// `href="/owner/repo"` (exactly 2 path segments, no `/login` prefix) is the
+/// canonical repo link. We scan the full article block — not line by line —
+/// because the `<h2 class="h3">` and `<a href=...>` are on separate lines.
 fn parse_trending_html(html: &str, _language: Option<&str>) -> Vec<FeedEntry> {
     let mut entries = Vec::new();
 
-    // GitHub trending page has repo links in the pattern:
-    //   <a href="/owner/repo" ...>
-    // inside article elements. We find all href="/owner/repo" patterns.
-    for line in html.lines() {
-        // Look for the specific trending repo link pattern
-        if let Some(entry) = extract_trending_repo_from_line(line) {
-            // Avoid duplicates by URL
+    // GitHub trending page wraps each repo in <article>...</article>.
+    // We only scan inside article blocks to avoid picking up sponsor/nav links.
+    let mut search = html;
+    while let Some(start) = search.find("<article") {
+        let rest = &search[start..];
+        let chunk = if let Some(end) = rest.find("</article>") {
+            &rest[..end + "</article>".len()]
+        } else {
+            rest
+        };
+
+        if let Some(entry) = extract_repo_from_article(chunk) {
             if !entries.iter().any(|e: &FeedEntry| e.repo_url == entry.repo_url) {
                 entries.push(entry);
             }
         }
+
+        // Advance past the opening <article tag
+        search = &rest[1..];
     }
 
     entries
 }
 
-/// Extract a trending repo entry from an HTML line containing an href like `/owner/repo`.
-fn extract_trending_repo_from_line(line: &str) -> Option<FeedEntry> {
-    // Pattern: href="/owner/repo" inside an <h2> or similar heading element
-    // The trending page uses: <h2 class="h3 ..."><a href="/owner/repo" ...>
-    let trimmed = line.trim();
-    if !trimmed.contains("href=\"/") {
-        return None;
+/// Extract a repo entry from the content of a single `<article>` block.
+///
+/// Scans for `href="/owner/repo"` patterns (exactly 2 path segments).
+/// Skips login redirects (`/login?...`) and sub-paths like `/issues`.
+fn extract_repo_from_article(chunk: &str) -> Option<FeedEntry> {
+    // Walk through all href="/" occurrences in this article chunk
+    let mut search = chunk;
+    while let Some(pos) = search.find("href=\"/") {
+        let path_start = pos + 6; // skip `href="`
+        let rest = &search[path_start..];
+        let path_end = rest.find('"')?;
+        let path = &rest[..path_end];
+
+        // Skip login redirects and query-string paths
+        if !path.contains('?') && !path.contains('#') {
+            let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
+            if segments.len() == 2 && !segments[0].is_empty() && !segments[1].is_empty() {
+                let owner = segments[0];
+                let repo = segments[1];
+                if let Ok(repo_url) =
+                    Url::parse(&format!("https://github.com/{owner}/{repo}"))
+                {
+                    return Some(FeedEntry {
+                        title: format!("{owner}/{repo}"),
+                        repo_url,
+                        description: None,
+                        published: None,
+                        source_name: "github-trending".to_string(),
+                    });
+                }
+            }
+        }
+
+        // Advance past this href to find the next one
+        search = &search[path_start + path_end..];
     }
-
-    // Only consider lines that look like repo heading links (contain class="h3" or similar)
-    // or have the Box-row pattern used in GitHub trending
-    let is_repo_link = trimmed.contains("h3")
-        || trimmed.contains("repo-")
-        || (trimmed.starts_with("<a") && trimmed.contains("color-fg-default"));
-
-    if !is_repo_link {
-        return None;
-    }
-
-    // Extract href value
-    let href_start = trimmed.find("href=\"/")?;
-    let path_start = href_start + 6; // skip `href="`
-    let path = &trimmed[path_start..];
-    let path_end = path.find('"')?;
-    let path = &path[..path_end];
-
-    // Must be /owner/repo (exactly 2 segments)
-    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-    if segments.len() != 2 || segments[0].is_empty() || segments[1].is_empty() {
-        return None;
-    }
-
-    let owner = segments[0];
-    let repo = segments[1];
-    let repo_url = Url::parse(&format!("https://github.com/{owner}/{repo}")).ok()?;
-
-    Some(FeedEntry {
-        title: format!("{owner}/{repo}"),
-        repo_url,
-        description: None,
-        published: None,
-        source_name: "github-trending".to_string(),
-    })
+    None
 }
 
 #[cfg(test)]
@@ -243,8 +246,12 @@ mod tests {
     #[test]
     fn deduplicates_repo_entries() {
         let html = r#"
-        <h2 class="h3"><a href="/owner/repo" class="color-fg-default">owner/repo</a></h2>
-        <h2 class="h3"><a href="/owner/repo" class="color-fg-default">owner/repo</a></h2>
+        <article class="Box-row">
+          <a href="/owner/repo" class="color-fg-default">owner/repo</a>
+        </article>
+        <article class="Box-row">
+          <a href="/owner/repo" class="color-fg-default">owner/repo</a>
+        </article>
         "#;
         let entries = parse_trending_html(html, None);
         assert_eq!(entries.len(), 1);
@@ -252,12 +259,16 @@ mod tests {
 
     #[test]
     fn ignores_non_repo_links() {
+        // Links outside <article> blocks are ignored entirely
         let html = r#"
-        <a href="/about" class="h3">About</a>
-        <a href="/owner/repo/issues" class="h3">Issues</a>
+        <a href="/about">About</a>
+        <a href="/owner/repo/issues">Issues</a>
+        <article class="Box-row">
+          <a href="/owner/repo/stargazers">Stars</a>
+        </article>
         "#;
         let entries = parse_trending_html(html, None);
-        // /about has 1 segment, /owner/repo/issues has 3 — both skipped
+        // /owner/repo/stargazers has 3 segments — skipped; /about and /issues are outside article
         assert!(entries.is_empty());
     }
 

@@ -185,6 +185,9 @@ pub struct FeedConfig {
     pub url: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// Max entries to process from this feed (newest first). `None` = no limit.
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 /// A source configuration with type discriminator.
@@ -825,6 +828,7 @@ min_stars = 5
         config.feeds.push(FeedConfig {
             url: "not a url".into(),
             name: Some("Bad Feed".into()),
+            limit: None,
         });
         let err = config.validate().unwrap_err().to_string();
         assert!(err.contains("invalid URL"), "error was: {err}");

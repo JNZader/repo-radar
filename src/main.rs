@@ -610,6 +610,7 @@ fn build_source(
                 let feed = repo_radar::config::FeedConfig {
                     url: url.clone(),
                     name: name.clone(),
+                    limit: None,
                 };
                 adapters.push(SourceAdapter::Rss(RssSource::new(
                     vec![feed],

@@ -183,6 +183,7 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
         vec![FeedConfig {
             url: format!("{}/feed.xml", server.uri()),
             name: Some("integration-test-feed".into()),
+            limit: None,
         }],
         client,
     ));
@@ -223,11 +224,11 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
     assert_eq!(report.entries_new, 1, "1 new entry (first run)");
     // Filter passes it through (500 stars > 10 min, not fork, not archived)
     assert_eq!(report.candidates_filtered, 1, "repo passes all filter criteria");
-    // Analyzer is Noop — returns empty results
-    assert_eq!(report.analyzed, 0, "noop analyzer produces no results");
-    // CrossRef gets empty input from analyzer
-    assert_eq!(report.crossrefed, 0, "no analysis results to cross-reference");
-    assert_eq!(report.reported, 0);
+    // Analyzer is Noop — passes candidates through with empty analysis fields
+    assert_eq!(report.analyzed, 1, "noop analyzer passes candidates through");
+    // CrossRef: NoopCrossRef wraps results with no matches
+    assert_eq!(report.crossrefed, 1, "noop crossref wraps analysis results");
+    assert_eq!(report.reported, 1);
 
     // Verify MarkdownReporter produced a .md file in the output directory
     assert!(report_dir.exists(), "report output directory should be created");
@@ -247,9 +248,10 @@ async fn full_pipeline_source_filter_analyzer_crossref_reporter() {
         content.contains("# Repo Radar Report"),
         "report should contain the main heading"
     );
+    // Noop pipeline now passes candidates through — report contains the discovered repo
     assert!(
-        content.contains("No results found."),
-        "report should indicate no results (analyzer was Noop)"
+        content.contains("github.com"),
+        "report should contain a GitHub link from the discovered repo"
     );
 }
 

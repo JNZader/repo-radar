@@ -95,7 +95,13 @@ async fn fetch_single_feed(
 
     let mut entries = Vec::new();
 
-    for entry in feed.entries {
+    let feed_entries = if let Some(limit) = feed_config.limit {
+        feed.entries.into_iter().take(limit).collect::<Vec<_>>()
+    } else {
+        feed.entries
+    };
+
+    for entry in feed_entries {
         let title = entry.title.map_or_else(
             || entry.id.clone(),
             |t| t.content,
@@ -233,6 +239,7 @@ mod tests {
         let feeds = vec![FeedConfig {
             url: format!("{}/feed.xml", server.uri()),
             name: Some("test-feed".into()),
+            limit: None,
         }];
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -285,10 +292,12 @@ mod tests {
             FeedConfig {
                 url: format!("{}/bad.xml", server.uri()),
                 name: Some("bad-feed".into()),
+                limit: None,
             },
             FeedConfig {
                 url: format!("{}/good.xml", server.uri()),
                 name: Some("good-feed".into()),
+                limit: None,
             },
         ];
 

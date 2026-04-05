@@ -10,13 +10,25 @@ use crate::infra::error::AnalyzerError;
 
 pub use self::repoforge::RepoforgeAnalyzer;
 
-/// A no-op analyzer that returns an empty result list.
+/// A no-op analyzer that passes candidates through with empty analysis fields.
+/// Used when no real analyzer (e.g. repoforge) is configured.
 #[derive(Debug, Clone)]
 pub struct NoopAnalyzer;
 
 impl Analyzer for NoopAnalyzer {
-    fn analyze(&self, _candidates: Vec<RepoCandidate>) -> impl Future<Output = Result<Vec<AnalysisResult>, AnalyzerError>> + Send {
-        async { Ok(Vec::new()) }
+    fn analyze(&self, candidates: Vec<RepoCandidate>) -> impl Future<Output = Result<Vec<AnalysisResult>, AnalyzerError>> + Send {
+        async {
+            Ok(candidates
+                .into_iter()
+                .map(|candidate| AnalysisResult {
+                    candidate,
+                    summary: String::new(),
+                    key_features: Vec::new(),
+                    tech_stack: Vec::new(),
+                    relevance_score: 0.0,
+                })
+                .collect())
+        }
     }
 }
 
