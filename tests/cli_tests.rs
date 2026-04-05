@@ -16,10 +16,14 @@ fn parse_scan_defaults() {
             dry_run,
             stage,
             backfill,
+            accumulate,
+            kb_path,
         } => {
             assert!(!dry_run);
             assert!(stage.is_none());
             assert!(!backfill);
+            assert!(!accumulate);
+            assert!(kb_path.is_none());
         }
         other => panic!("expected Scan, got {other:?}"),
     }

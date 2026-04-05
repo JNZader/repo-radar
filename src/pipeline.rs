@@ -15,6 +15,7 @@ use crate::domain::scorer::semantic_score;
 use crate::domain::source::Source;
 use crate::infra::error::PipelineError;
 use crate::infra::seen::SeenStore;
+use crate::kb_pipeline::{KbPipeline, KbReport};
 
 /// Progress update emitted during a scan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +262,143 @@ where
         };
 
         Ok((report, crossrefed))
+    }
+
+    /// Execute the full pipeline AND run KB accumulation on the filtered candidates.
+    ///
+    /// This method runs the identical pipeline logic as [`Self::run`] but after
+    /// the filter stage it passes ALL filtered candidates to `kb_pipeline.accumulate()`.
+    /// The KB accumulation runs concurrently with the rest of the pipeline stages.
+    ///
+    /// Returns `(PipelineReport, Vec<CrossRefResult>, KbReport)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PipelineError` if any main-pipeline stage fails. KB errors are
+    /// only logged as warnings — they never cause this method to return an error.
+    #[instrument(skip_all, name = "pipeline_with_kb")]
+    pub async fn run_with_kb(
+        &mut self,
+        kb_pipeline: &KbPipeline,
+    ) -> Result<(PipelineReport, Vec<crate::domain::model::CrossRefResult>, KbReport), PipelineError>
+    {
+        self.emit_progress("fetch", 10, "Fetching feeds...");
+        info!("fetching entries from source");
+        let entries = self.source.fetch().await?;
+        let entries_fetched = entries.len();
+        info!(count = entries_fetched, "entries fetched");
+
+        self.emit_progress("dedupe", 20, "Deduplicating entries...");
+        let new_entries: Vec<_> = entries
+            .into_iter()
+            .filter(|e| !self.seen.is_seen(e.repo_url.as_str()))
+            .collect();
+        let entries_new = new_entries.len();
+        info!(count = entries_new, "new entries (not previously seen)");
+
+        self.emit_progress("filter", 35, "Filtering candidates...");
+        info!("filtering candidates");
+        let candidates = self.filter.filter(new_entries).await?;
+        let candidates_filtered = candidates.len();
+        info!(count = candidates_filtered, "candidates after filter");
+
+        // KB accumulation: run on ALL filtered candidates BEFORE top-N selection.
+        // Clone candidates for KB — the main pipeline continues with originals.
+        let kb_candidates = candidates.clone();
+        let kb_report = kb_pipeline.accumulate(kb_candidates).await;
+        info!(
+            analyzed = kb_report.analyzed,
+            skipped = kb_report.skipped,
+            failed = kb_report.failed,
+            "kb accumulation complete"
+        );
+
+        self.emit_progress("categorize", 45, "Categorizing repos...");
+        info!("categorizing candidates");
+        let candidates = self.categorizer.categorize(candidates)?;
+        info!(count = candidates.len(), "candidates categorized");
+
+        // Semantic pre-scoring
+        let mut candidates = candidates;
+        if let Some(ref own_repos) = self.own_repos {
+            info!(own_repo_count = own_repos.len(), "running semantic pre-scoring");
+            for candidate in &mut candidates {
+                candidate.semantic_score = semantic_score(
+                    candidate.entry.description.as_deref(),
+                    &candidate.topics,
+                    own_repos,
+                );
+            }
+        }
+
+        // Select top-N candidates for deep analysis
+        let candidates_for_analysis = {
+            let top_n = self.analyzer_config.deep_analysis_top_n;
+            let min_rel = self.analyzer_config.deep_analysis_min_relevance;
+            if top_n > 0 && self.own_repos.is_some() {
+                let mut scored = candidates.clone();
+                scored.sort_by(|a, b| {
+                    b.semantic_score
+                        .partial_cmp(&a.semantic_score)
+                        .unwrap_or(Ordering::Equal)
+                });
+                let filtered: Vec<_> = scored
+                    .into_iter()
+                    .filter(|c| c.semantic_score >= min_rel)
+                    .take(top_n)
+                    .collect();
+                info!(
+                    total_candidates = candidates.len(),
+                    selected_for_deep = filtered.len(),
+                    top_n,
+                    min_relevance = min_rel,
+                    "selected candidates for deep analysis"
+                );
+                filtered
+            } else {
+                candidates.clone()
+            }
+        };
+
+        self.emit_progress("analyze", 55, "Analyzing repos...");
+        info!("analyzing candidates");
+        let analyzed = self.analyzer.analyze(candidates_for_analysis).await?;
+        let analyzed_count = analyzed.len();
+        info!(count = analyzed_count, "analyzed results");
+
+        self.emit_progress("crossref", 80, "Cross-referencing...");
+        info!("cross-referencing");
+        let crossrefed = self.crossref.cross_reference(analyzed).await?;
+        let crossrefed_count = crossrefed.len();
+        info!(count = crossrefed_count, "cross-referenced results");
+
+        self.emit_progress("report", 90, "Generating report...");
+        info!("generating report");
+        self.reporter.report(&crossrefed).await?;
+        let reported = crossrefed_count;
+        info!("report generated");
+
+        // Mark all processed entries as seen
+        for result in &crossrefed {
+            self.seen
+                .mark_seen(result.analysis.candidate.entry.repo_url.as_str());
+        }
+        self.seen.save()?;
+        info!(total_seen = self.seen.len(), "seen store saved");
+
+        self.emit_progress("complete", 100, "Scan complete");
+
+        let report = PipelineReport {
+            entries_fetched,
+            entries_new,
+            candidates_filtered,
+            categorized: candidates_filtered,
+            analyzed: analyzed_count,
+            crossrefed: crossrefed_count,
+            reported,
+        };
+
+        Ok((report, crossrefed, kb_report))
     }
 }
 

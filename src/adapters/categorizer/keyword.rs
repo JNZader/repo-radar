@@ -179,6 +179,7 @@ mod tests {
             repo_name: name.into(),
             category: RepoCategory::default(),
             semantic_score: 0.0,
+            pushed_at: None,
         }
     }
 

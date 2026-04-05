@@ -102,6 +102,7 @@ mod tests {
                     repo_name: "cool-tool".into(),
                     category: Default::default(),
                     semantic_score: 0.0,
+                    pushed_at: None,
                 },
                 summary: "A great CLI tool for async workflows".into(),
                 key_features: vec!["fast".into(), "safe".into()],

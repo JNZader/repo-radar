@@ -185,6 +185,7 @@ mod tests {
                     repo_name: name.into(),
                     category: Default::default(),
                     semantic_score: 0.0,
+                    pushed_at: None,
                 },
                 summary: "summary".into(),
                 key_features: vec!["fast".into()],

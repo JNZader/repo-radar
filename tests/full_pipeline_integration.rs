@@ -313,6 +313,7 @@ async fn crossref_adapter_processes_analysis_results_through_pipeline() {
             repo_name: "cool-tool".into(),
             category: Default::default(),
             semantic_score: 0.0,
+            pushed_at: None,
         },
         summary: "A fast CLI tool".into(),
         key_features: vec!["fast".into()],

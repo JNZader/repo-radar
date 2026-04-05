@@ -71,6 +71,18 @@ pub enum IdeaError {
 }
 
 #[derive(Debug, Error)]
+pub enum KbError {
+    #[error("SQLite error: {0}")]
+    Sqlite(String),
+    #[error("LLM request failed for {repo}: {reason}")]
+    LlmRequest { repo: String, reason: String },
+    #[error("JSON parse failed for {repo}: {reason}")]
+    ParseFailed { repo: String, reason: String },
+    #[error("repoforge export failed for {repo}: {reason}")]
+    RepoforgeExport { repo: String, reason: String },
+}
+
+#[derive(Debug, Error)]
 pub enum PipelineError {
     #[error("source stage failed: {0}")]
     Source(#[from] SourceError),

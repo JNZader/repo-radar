@@ -107,6 +107,7 @@ struct RepoMetadata {
     topics: Vec<String>,
     fork: bool,
     archived: bool,
+    pushed_at: Option<chrono::DateTime<Utc>>,
 }
 
 async fn filter_entries(
@@ -196,6 +197,7 @@ async fn filter_entries(
                 topics,
                 fork: is_fork,
                 archived: is_archived,
+                pushed_at: repo_data.pushed_at,
             }
         };
 
@@ -266,6 +268,7 @@ async fn filter_entries(
             repo_name: repo.clone(),
             category: RepoCategory::default(),
             semantic_score: 0.0,
+            pushed_at: metadata.pushed_at,
         });
     }
 
@@ -286,6 +289,7 @@ fn try_cache_hit(cache: &Option<Mutex<RepoCache>>, key: &str) -> Option<RepoMeta
         topics: cached.topics.clone(),
         fork: cached.fork,
         archived: cached.archived,
+        pushed_at: None, // pushed_at is not stored in cache
     })
 }
 
@@ -611,6 +615,7 @@ mod tests {
         assert!(!c.fork);
         assert!(!c.archived);
         assert_eq!(c.topics, vec!["cli", "tooling"]);
+        assert!(c.pushed_at.is_some(), "pushed_at must be populated from GitHub API response");
     }
 
     #[test]

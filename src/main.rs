@@ -52,7 +52,9 @@ async fn main() -> Result<()> {
             dry_run,
             stage: _,
             backfill: _,
-        } => handle_scan(cli.config.as_deref(), dry_run).await?,
+            accumulate,
+            ref kb_path,
+        } => handle_scan(cli.config.as_deref(), dry_run, accumulate, kb_path.clone()).await?,
         Command::Ideas {
             ref input,
             ref output,
@@ -115,7 +117,12 @@ fn handle_config(action: &ConfigAction, config_override: Option<&std::path::Path
     Ok(())
 }
 
-async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bool) -> Result<()> {
+async fn handle_scan(
+    config_path_override: Option<&std::path::Path>,
+    dry_run: bool,
+    accumulate: bool,
+    kb_path_override: Option<std::path::PathBuf>,
+) -> Result<()> {
     // Check if config exists; if not, show first-run message (REQ-10)
     let resolved_path =
         config_path_override.map_or_else(config_path, std::path::Path::to_path_buf);
@@ -220,7 +227,32 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None)
         .with_analyzer_config(config.analyzer.clone())
         .with_own_repos(own_repos);
-    let (report, results) = pipeline.run().await.into_diagnostic()?;
+
+    let (report, results) = if accumulate {
+        use repo_radar::kb_pipeline::build_kb_pipeline;
+
+        let kb_pipeline = build_kb_pipeline(
+            &config.kb,
+            kb_path_override,
+            config.analyzer.repoforge_path.clone(),
+            config.analyzer.timeout_secs,
+        )
+        .into_diagnostic()?;
+
+        let (pipeline_report, crossref_results, kb_report) = pipeline
+            .run_with_kb(&kb_pipeline)
+            .await
+            .into_diagnostic()?;
+
+        println!(
+            "\n{}\n{kb_report}",
+            "KB accumulation complete:".green().bold()
+        );
+
+        (pipeline_report, crossref_results)
+    } else {
+        pipeline.run().await.into_diagnostic()?
+    };
 
     // Persist scan results for later use by `report` and `ideas` commands
     let store = repo_radar::infra::scan_store::ScanResultStore::new(

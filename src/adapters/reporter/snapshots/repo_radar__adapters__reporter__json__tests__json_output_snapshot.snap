@@ -24,7 +24,8 @@ expression: json
         "owner": "snapshot",
         "repo_name": "tool",
         "category": "Other",
-        "semantic_score": 0.0
+        "semantic_score": 0.0,
+        "pushed_at": null
       },
       "summary": "A powerful snapshot testing tool for Rust projects",
       "key_features": [

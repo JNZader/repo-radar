@@ -225,6 +225,7 @@ mod tests {
                     repo_name: name.to_string(),
                     category: Default::default(),
                     semantic_score: 0.0,
+                    pushed_at: None,
                 },
                 summary: "Test summary".into(),
                 key_features: vec!["fast".into()],

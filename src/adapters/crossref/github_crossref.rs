@@ -299,6 +299,7 @@ mod tests {
                 repo_name: "test-repo".into(),
                 category: Default::default(),
                 semantic_score: 0.0,
+                pushed_at: None,
             },
             summary: "A great test repo".into(),
             key_features: vec!["fast".into()],

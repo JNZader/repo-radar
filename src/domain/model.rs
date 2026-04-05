@@ -64,6 +64,9 @@ pub struct RepoCandidate {
     /// Computed before deep analysis to prioritize candidates.
     #[serde(default)]
     pub semantic_score: f64,
+    /// Last push timestamp from GitHub API — used as cache key for KB analysis freshness.
+    #[serde(default)]
+    pub pushed_at: Option<DateTime<Utc>>,
 }
 
 /// A compact representation of one of the user's own repos used for semantic scoring.
@@ -157,6 +160,87 @@ pub struct Idea {
     pub category: RepoCategory,
 }
 
+/// Status of a KB analysis entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub enum KbAnalysisStatus {
+    /// Analysis was successfully parsed and stored.
+    #[default]
+    Complete,
+    /// LLM response could not be parsed; raw response saved in `raw_llm_response`.
+    ParseFailed,
+}
+
+/// Structured LLM analysis of a repository stored in the knowledge base.
+///
+/// Combines repository metadata (from GitHub) with LLM-generated analysis fields.
+/// All LLM fields use `#[serde(default)]` so partial responses still deserialize cleanly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct KbAnalysis {
+    // ── Repository metadata ─────────────────────────────────────────────────
+    /// GitHub owner login.
+    #[serde(default)]
+    pub owner: String,
+    /// Repository name (without owner prefix).
+    #[serde(default)]
+    pub repo_name: String,
+    /// Full URL to the repository.
+    #[serde(default)]
+    pub url: String,
+    /// GitHub star count at time of analysis.
+    #[serde(default)]
+    pub stars: u64,
+    /// Primary language reported by GitHub.
+    #[serde(default)]
+    pub language: Option<String>,
+    /// GitHub topic tags.
+    #[serde(default)]
+    pub topics: Vec<String>,
+    /// Last push timestamp from GitHub API (used as cache-freshness key).
+    #[serde(default)]
+    pub pushed_at: Option<DateTime<Utc>>,
+    /// When this repo was first added to the knowledge base.
+    #[serde(default = "Utc::now")]
+    pub first_seen_at: DateTime<Utc>,
+    /// When this repo was last seen/updated.
+    #[serde(default = "Utc::now")]
+    pub last_seen_at: DateTime<Utc>,
+    /// When LLM analysis was last completed successfully.
+    #[serde(default)]
+    pub analyzed_at: Option<DateTime<Utc>>,
+
+    // ── LLM analysis fields ──────────────────────────────────────────────────
+    /// One-line description of what the repo does.
+    #[serde(default)]
+    pub what: String,
+    /// The problem the repo solves.
+    #[serde(default)]
+    pub problem: String,
+    /// Key architectural patterns used.
+    #[serde(default)]
+    pub architecture: String,
+    /// Up to 4 notable techniques (1–4 items).
+    #[serde(default)]
+    pub techniques: Vec<String>,
+    /// Up to 3 ideas worth stealing (1–3 items).
+    #[serde(default)]
+    pub steal: Vec<String>,
+    /// What makes this repo unique or noteworthy.
+    #[serde(default)]
+    pub uniqueness: String,
+    /// Analysis status — `ParseFailed` when LLM response could not be parsed.
+    #[serde(default)]
+    pub status: KbAnalysisStatus,
+    /// Raw LLM response string, populated only on parse failure.
+    pub raw_llm_response: Option<String>,
+}
+
+impl KbAnalysis {
+    /// Return the composite primary key `"owner/repo_name"`.
+    pub fn owner_repo_id(&self) -> String {
+        format!("{}/{}", self.owner, self.repo_name)
+    }
+}
+
 /// Collection of extracted ideas with summary metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdeaReport {
@@ -194,6 +278,7 @@ mod tests {
             repo_name: "awesome-tool".into(),
             category: RepoCategory::default(),
             semantic_score: 0.0,
+            pushed_at: None,
         }
     }
 
@@ -279,6 +364,7 @@ mod tests {
             repo_name: "repo".into(),
             category: RepoCategory::default(),
             semantic_score: 0.0,
+            pushed_at: None,
         };
         let json = serde_json::to_string(&candidate).unwrap();
         let deserialized: RepoCandidate = serde_json::from_str(&json).unwrap();

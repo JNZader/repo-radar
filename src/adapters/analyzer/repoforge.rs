@@ -10,17 +10,17 @@ use tracing::warn;
 use crate::domain::analyzer::Analyzer;
 use crate::domain::model::{AnalysisResult, RepoCandidate};
 use crate::infra::error::AnalyzerError;
+use crate::infra::repoforge::RepoforgeRunner;
 
 /// Runs the RepoForge CLI as a subprocess to analyze repositories.
 ///
 /// Workflow per candidate:
 /// 1. `git clone --depth 1 --single-branch <url> <tmpdir>`
-/// 2. `repoforge export -w <tmpdir> --no-contents -q`
+/// 2. `repoforge export -w <tmpdir> --no-contents -q` (via `RepoforgeRunner`)
 /// 3. Parse the markdown output for tech_stack and key definitions.
 pub struct RepoforgeAnalyzer {
-    repoforge_path: PathBuf,
+    runner: RepoforgeRunner,
     git_path: PathBuf,
-    timeout: Duration,
 }
 
 impl RepoforgeAnalyzer {
@@ -29,9 +29,20 @@ impl RepoforgeAnalyzer {
     #[must_use]
     pub fn new(repoforge_path: PathBuf, timeout_secs: u64) -> Self {
         Self {
-            repoforge_path,
+            runner: RepoforgeRunner::new(
+                repoforge_path,
+                Duration::from_secs(timeout_secs),
+            ),
             git_path: PathBuf::from("git"),
-            timeout: Duration::from_secs(timeout_secs),
+        }
+    }
+
+    /// Create a `RepoforgeAnalyzer` from an existing `RepoforgeRunner`.
+    #[must_use]
+    pub fn with_runner(runner: RepoforgeRunner) -> Self {
+        Self {
+            runner,
+            git_path: PathBuf::from("git"),
         }
     }
 
@@ -62,7 +73,7 @@ impl RepoforgeAnalyzer {
             .stderr(Stdio::null())
             .output();
 
-        let clone_output = tokio::time::timeout(self.timeout, clone_future)
+        let clone_output = tokio::time::timeout(self.runner.timeout, clone_future)
             .await
             .map_err(|_| AnalyzerError::Timeout {
                 repo: repo_url.to_string(),
@@ -82,37 +93,16 @@ impl RepoforgeAnalyzer {
             });
         }
 
-        // Step 2: run `repoforge export` on the cloned directory.
-        let export_future = tokio::process::Command::new(&self.repoforge_path)
-            .args(["export", "-w"])
-            .arg(tmp_dir.path())
-            .args(["--no-contents", "-q"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
-
-        let export_output = tokio::time::timeout(self.timeout, export_future)
+        // Step 2: run `repoforge export --no-contents` on the cloned directory.
+        let markdown = self
+            .runner
+            .export_no_contents(tmp_dir.path())
             .await
-            .map_err(|_| AnalyzerError::Timeout {
-                repo: repo_url.to_string(),
-            })?
             .map_err(|e| AnalyzerError::RepoforgeError {
                 repo: repo_url.to_string(),
                 reason: e.to_string(),
             })?;
-
-        if !export_output.status.success() {
-            return Err(AnalyzerError::RepoforgeError {
-                repo: repo_url.to_string(),
-                reason: format!(
-                    "repoforge export failed with code {}",
-                    export_output.status.code().unwrap_or(-1)
-                ),
-            });
-        }
-
-        // Step 3: parse the markdown output.
-        let markdown = String::from_utf8_lossy(&export_output.stdout);
+        let markdown = markdown.as_str();
         let tech_stack = parse_tech_stack(&markdown);
         let key_features = parse_key_definitions(&markdown);
 
@@ -280,6 +270,7 @@ mod tests {
             repo_name: "test-repo".into(),
             category: Default::default(),
             semantic_score: 0.42,
+            pushed_at: None,
         }
     }
 

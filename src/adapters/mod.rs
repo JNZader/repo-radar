@@ -6,3 +6,4 @@ pub mod crossref;
 pub mod reporter;
 pub mod idea_extractor;
 pub mod web;
+pub mod kb;

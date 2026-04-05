@@ -195,6 +195,7 @@ mod tests {
                     repo_name: repo.to_string(),
                     category: Default::default(),
                     semantic_score: 0.0,
+                    pushed_at: None,
                 },
                 summary: "test".to_string(),
                 key_features: vec![],

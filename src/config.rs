@@ -24,6 +24,9 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     #[serde(default)]
     pub cache: CacheConfig,
+    /// Knowledge base accumulator settings. Opt-in via `--accumulate` CLI flag.
+    #[serde(default)]
+    pub kb: KbConfig,
 }
 
 const VALID_FORMATS: &[&str] = &["markdown", "json", "console"];
@@ -433,6 +436,67 @@ const fn default_cache_ttl_secs() -> u64 {
 
 const fn default_rate_limit_threshold() -> u32 {
     100
+}
+
+/// Knowledge base accumulator settings.
+///
+/// Enable the KB pipeline by passing `--accumulate` to `scan`.
+/// All options have sane defaults; only `enabled` needs to be set to `true`
+/// in the config file to have the pipeline run without the CLI flag.
+///
+/// Example TOML (commented out in default template):
+/// ```toml
+/// [kb]
+/// enabled = false
+/// # db_path = "kb.db"
+/// # llm_gateway_url = "http://localhost:3456"
+/// # llm_model = "openai/gpt-4o-mini"
+/// # llm_auth_token = "sk-..."
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KbConfig {
+    /// Whether the KB pipeline runs automatically (without `--accumulate`).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the SQLite knowledge base file.
+    /// Defaults to `./kb.db` (relative to the working directory).
+    #[serde(default = "KbConfig::default_db_path")]
+    pub db_path: PathBuf,
+    /// Base URL for the LLM gateway (mcp-llm-bridge compatible).
+    #[serde(default = "KbConfig::default_llm_gateway_url")]
+    pub llm_gateway_url: String,
+    /// LLM model identifier passed to the gateway.
+    #[serde(default = "KbConfig::default_llm_model")]
+    pub llm_model: String,
+    /// Optional bearer token for the LLM gateway.
+    #[serde(default)]
+    pub llm_auth_token: Option<String>,
+}
+
+impl KbConfig {
+    fn default_db_path() -> PathBuf {
+        PathBuf::from("kb.db")
+    }
+
+    fn default_llm_gateway_url() -> String {
+        "http://localhost:3456".into()
+    }
+
+    fn default_llm_model() -> String {
+        "openai/gpt-4o-mini".into()
+    }
+}
+
+impl Default for KbConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path: Self::default_db_path(),
+            llm_gateway_url: Self::default_llm_gateway_url(),
+            llm_model: Self::default_llm_model(),
+            llm_auth_token: None,
+        }
+    }
 }
 
 /// Returns the default XDG config path for repo-radar.

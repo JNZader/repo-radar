@@ -33,6 +33,15 @@ pub enum Command {
         /// Backfill mode: process previously seen entries.
         #[arg(long)]
         backfill: bool,
+
+        /// Also run the KB accumulator pipeline after filtering (stores all
+        /// filtered candidates in the SQLite knowledge base).
+        #[arg(long)]
+        accumulate: bool,
+
+        /// Path to the knowledge base SQLite file (overrides config `kb.db_path`).
+        #[arg(long)]
+        kb_path: Option<PathBuf>,
     },
 
     /// Generate reports from cached results.
