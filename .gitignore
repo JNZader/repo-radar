@@ -4,3 +4,4 @@
 *.swo
 .env
 output/
+config.dev.toml

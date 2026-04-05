@@ -1,0 +1,69 @@
+services:
+
+  # ── LLM Gateway (mcp-llm-bridge) ───────────────────────
+  llm-gateway:
+    build:
+      context: ../mcp-llm-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "3456:3456"
+    volumes:
+      - llm-data:/root/.llm-gateway
+    environment:
+      - LLM_GATEWAY_PORT=3456
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3456/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Repo Radar — web dashboard ─────────────────────────
+  repo-radar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - radar-data:/data
+      # Mount local config so you can edit it without rebuilding
+      - ./config.dev.toml:/data/config.toml:ro
+    environment:
+      - REPO_RADAR_DATA_DIR=/data
+      - REPO_RADAR_GITHUB_TOKEN=${REPO_RADAR_GITHUB_TOKEN:-}
+    depends_on:
+      llm-gateway:
+        condition: service_healthy
+    command: ["repo-radar", "serve", "--host", "0.0.0.0", "--port", "3000"]
+    restart: unless-stopped
+
+  # ── Repo Radar — scheduled scanner ────────────────────
+  # Runs a scan every 12 hours and accumulates into the KB.
+  # Uses the same data volume as repo-radar so seen.json is shared.
+  repo-radar-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - radar-data:/data
+      - ./config.dev.toml:/data/config.toml:ro
+    environment:
+      - REPO_RADAR_DATA_DIR=/data
+      - REPO_RADAR_GITHUB_TOKEN=${REPO_RADAR_GITHUB_TOKEN:-}
+    depends_on:
+      llm-gateway:
+        condition: service_healthy
+    # Sleep loop: scan at startup, then every 12h
+    command: >
+      sh -c "while true; do
+        echo '[scanner] starting scan...';
+        repo-radar scan --accumulate --config /data/config.toml;
+        echo '[scanner] done. sleeping 12h...';
+        sleep 43200;
+      done"
+    restart: unless-stopped
+
+volumes:
+  llm-data:
+  radar-data:
