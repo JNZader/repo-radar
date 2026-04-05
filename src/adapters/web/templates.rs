@@ -409,6 +409,319 @@ mod tests {
     use chrono::Utc;
     use url::Url;
 
+    // ── relevance_pct ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn relevance_pct_boundary_values() {
+        assert_eq!(relevance_pct(0.0), 0);
+        assert_eq!(relevance_pct(0.5), 50);
+        assert_eq!(relevance_pct(0.8), 80);
+        assert_eq!(relevance_pct(1.0), 100);
+    }
+
+    #[test]
+    fn relevance_pct_rounding() {
+        // 0.555 * 100 = 55.5 → rounds to 56
+        assert_eq!(relevance_pct(0.555), 56);
+        // 0.554 * 100 = 55.4 → rounds to 55
+        assert_eq!(relevance_pct(0.554), 55);
+    }
+
+    #[test]
+    fn relevance_pct_out_of_range_values() {
+        // Negative input: wraps via saturating cast — f64 negative casts to 0 in Rust
+        // Actually (−0.5 * 100.0).round() as u32 wraps; we just verify it doesn't panic.
+        let _ = relevance_pct(-0.5);
+        // Values > 1.0 produce > 100 — no panic expected
+        assert!(relevance_pct(1.5) > 100);
+    }
+
+    // ── relevance_color ───────────────────────────────────────────────────────
+
+    #[test]
+    fn relevance_color_thresholds() {
+        // pct >= 80 → green
+        assert_eq!(relevance_color(0.80), "text-green-400");
+        assert_eq!(relevance_color(1.0), "text-green-400");
+        assert_eq!(relevance_color(0.81), "text-green-400");
+
+        // pct in [50, 79] → yellow
+        assert_eq!(relevance_color(0.50), "text-yellow-400");
+        assert_eq!(relevance_color(0.79), "text-yellow-400");
+        assert_eq!(relevance_color(0.65), "text-yellow-400");
+
+        // pct < 50 → red
+        assert_eq!(relevance_color(0.49), "text-red-400");
+        assert_eq!(relevance_color(0.0), "text-red-400");
+        assert_eq!(relevance_color(0.20), "text-red-400");
+    }
+
+    #[test]
+    fn relevance_color_exact_boundary_between_green_and_yellow() {
+        // 0.799... rounds to 80 → green
+        assert_eq!(relevance_color(0.7999), "text-green-400");
+        // 0.795 rounds to 80 → green
+        assert_eq!(relevance_color(0.795), "text-green-400");
+        // 0.794 rounds to 79 → yellow
+        assert_eq!(relevance_color(0.794), "text-yellow-400");
+    }
+
+    #[test]
+    fn relevance_color_exact_boundary_between_yellow_and_red() {
+        // 0.495 rounds to 50 → yellow
+        assert_eq!(relevance_color(0.495), "text-yellow-400");
+        // 0.494 rounds to 49 → red
+        assert_eq!(relevance_color(0.494), "text-red-400");
+    }
+
+    // ── toggle_dir ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn toggle_dir_different_column_returns_default() {
+        // Not the active column → return default_dir regardless
+        assert_eq!(toggle_dir("stars", "desc", "relevance", "desc"), "desc");
+        assert_eq!(toggle_dir("stars", "asc", "relevance", "asc"), "asc");
+        assert_eq!(toggle_dir("stars", "desc", "relevance", "asc"), "asc");
+    }
+
+    #[test]
+    fn toggle_dir_same_column_flips_from_default() {
+        // current is default_dir=desc, same column → flip to asc
+        assert_eq!(toggle_dir("stars", "desc", "stars", "desc"), "asc");
+        // current is default_dir=asc, same column → flip to desc
+        assert_eq!(toggle_dir("stars", "asc", "stars", "asc"), "desc");
+    }
+
+    #[test]
+    fn toggle_dir_same_column_already_flipped_returns_default() {
+        // default=desc, current=asc (already flipped) → return desc (default)
+        assert_eq!(toggle_dir("stars", "asc", "stars", "desc"), "desc");
+        // default=asc, current=desc (already flipped) → return asc (default)
+        assert_eq!(toggle_dir("stars", "desc", "stars", "asc"), "asc");
+    }
+
+    // ── sort_indicator ────────────────────────────────────────────────────────
+
+    #[test]
+    fn sort_indicator_active_column_asc() {
+        assert_eq!(sort_indicator("stars", "asc", "stars"), "\u{25B2}");
+    }
+
+    #[test]
+    fn sort_indicator_active_column_desc() {
+        assert_eq!(sort_indicator("stars", "desc", "stars"), "\u{25BC}");
+    }
+
+    #[test]
+    fn sort_indicator_inactive_column_is_empty() {
+        assert_eq!(sort_indicator("stars", "asc", "relevance"), "");
+        assert_eq!(sort_indicator("stars", "desc", "name"), "");
+    }
+
+    // ── fmt_score_delta ───────────────────────────────────────────────────────
+
+    #[test]
+    fn fmt_score_delta_positive() {
+        assert_eq!(fmt_score_delta(0.123), "+12.3%");
+        assert_eq!(fmt_score_delta(1.0), "+100.0%");
+    }
+
+    #[test]
+    fn fmt_score_delta_negative() {
+        assert_eq!(fmt_score_delta(-0.05), "-5.0%");
+        assert_eq!(fmt_score_delta(-0.123), "-12.3%");
+    }
+
+    #[test]
+    fn fmt_score_delta_zero() {
+        assert_eq!(fmt_score_delta(0.0), "+0.0%");
+    }
+
+    #[test]
+    fn fmt_score_delta_very_small_positive() {
+        // 0.001 * 100 = 0.1 → "+0.1%"
+        assert_eq!(fmt_score_delta(0.001), "+0.1%");
+    }
+
+    #[test]
+    fn fmt_score_delta_very_small_negative() {
+        assert_eq!(fmt_score_delta(-0.001), "-0.1%");
+    }
+
+    // ── score_delta_color ─────────────────────────────────────────────────────
+
+    #[test]
+    fn score_delta_color_positive_above_threshold() {
+        assert_eq!(score_delta_color(0.05), "text-green-400");
+        assert_eq!(score_delta_color(0.10), "text-green-400");
+        assert_eq!(score_delta_color(1.0), "text-green-400");
+    }
+
+    #[test]
+    fn score_delta_color_negative_above_threshold() {
+        assert_eq!(score_delta_color(-0.05), "text-red-400");
+        assert_eq!(score_delta_color(-0.10), "text-red-400");
+        assert_eq!(score_delta_color(-1.0), "text-red-400");
+    }
+
+    #[test]
+    fn score_delta_color_within_neutral_band() {
+        assert_eq!(score_delta_color(0.0), "text-gray-400");
+        assert_eq!(score_delta_color(0.04), "text-gray-400");
+        assert_eq!(score_delta_color(-0.04), "text-gray-400");
+    }
+
+    #[test]
+    fn score_delta_color_exact_boundary_positive() {
+        // exactly 0.05 → green (>= 0.05)
+        assert_eq!(score_delta_color(0.05), "text-green-400");
+        // just below → gray
+        assert_eq!(score_delta_color(0.049), "text-gray-400");
+    }
+
+    #[test]
+    fn score_delta_color_exact_boundary_negative() {
+        // exactly -0.05 → red (<= -0.05)
+        assert_eq!(score_delta_color(-0.05), "text-red-400");
+        // just above threshold → gray
+        assert_eq!(score_delta_color(-0.049), "text-gray-400");
+    }
+
+    // ── build_compare_data ────────────────────────────────────────────────────
+
+    fn make_crossref_result(
+        owner: &str,
+        repo_name: &str,
+        relevance: f64,
+        topics: Vec<String>,
+        matches: Vec<RepoMatch>,
+    ) -> CrossRefResult {
+        CrossRefResult {
+            analysis: AnalysisResult {
+                candidate: RepoCandidate {
+                    entry: FeedEntry {
+                        title: repo_name.to_string(),
+                        repo_url: Url::parse(&format!("https://github.com/{owner}/{repo_name}"))
+                            .unwrap(),
+                        description: Some("Test repo".into()),
+                        published: Some(Utc::now()),
+                        source_name: "test".into(),
+                    },
+                    stars: 42,
+                    language: Some("Rust".into()),
+                    topics,
+                    fork: false,
+                    archived: false,
+                    owner: owner.to_string(),
+                    repo_name: repo_name.to_string(),
+                    category: Default::default(),
+                },
+                summary: "A test summary".into(),
+                key_features: vec!["feature-a".into()],
+                tech_stack: vec!["Rust".into()],
+                relevance_score: relevance,
+            },
+            matched_repos: matches,
+            ideas: vec!["idea-1".into()],
+            overall_relevance: relevance,
+        }
+    }
+
+    #[test]
+    fn build_compare_data_basic_fields() {
+        let result = make_crossref_result(
+            "acme",
+            "my-tool",
+            0.75,
+            vec!["cli".into(), "automation".into()],
+            vec![RepoMatch {
+                own_repo: "user/project".into(),
+                relevance: 0.8,
+                reason: "Similar tech".into(),
+            }],
+        );
+
+        let (discovered, matches, _unique_topics) = build_compare_data(&result);
+
+        assert_eq!(discovered.owner, "acme");
+        assert_eq!(discovered.repo_name, "my-tool");
+        assert_eq!(discovered.repo_url, "https://github.com/acme/my-tool");
+        assert_eq!(discovered.stars, 42);
+        assert_eq!(discovered.language, Some("Rust".into()));
+        assert!((discovered.overall_relevance - 0.75).abs() < f64::EPSILON);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].own_repo, "user/project");
+        assert!((matches[0].relevance - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn build_compare_data_no_matches_returns_empty_vec() {
+        let result = make_crossref_result("owner", "repo", 0.5, vec![], vec![]);
+        let (_discovered, matches, unique_topics) = build_compare_data(&result);
+        assert!(matches.is_empty());
+        assert!(unique_topics.is_empty());
+    }
+
+    #[test]
+    fn build_compare_data_unique_topics_excludes_shared() {
+        // Topics on the repo
+        let topics = vec!["rust".into(), "cli".into(), "exclusive-topic".into()];
+        // Match reason mentions "shared topics: rust, cli"
+        let matches = vec![RepoMatch {
+            own_repo: "user/my-repo".into(),
+            relevance: 0.9,
+            reason: "shared topics: rust, cli; also very fast".into(),
+        }];
+        let result = make_crossref_result("owner", "repo", 0.8, topics, matches);
+        let (_discovered, _matches, unique_topics) = build_compare_data(&result);
+
+        // "exclusive-topic" is not shared so it should appear
+        assert!(
+            unique_topics.contains(&"exclusive-topic".to_string()),
+            "unique_topics should contain 'exclusive-topic', got: {unique_topics:?}"
+        );
+        // "rust" and "cli" are shared and should NOT appear
+        assert!(
+            !unique_topics.contains(&"rust".to_string()),
+            "shared topic 'rust' should not be in unique_topics"
+        );
+        assert!(
+            !unique_topics.contains(&"cli".to_string()),
+            "shared topic 'cli' should not be in unique_topics"
+        );
+    }
+
+    #[test]
+    fn build_compare_data_multiple_matches_all_preserved() {
+        let matches = vec![
+            RepoMatch { own_repo: "user/a".into(), relevance: 0.9, reason: "reason-a".into() },
+            RepoMatch { own_repo: "user/b".into(), relevance: 0.7, reason: "reason-b".into() },
+            RepoMatch { own_repo: "user/c".into(), relevance: 0.5, reason: "reason-c".into() },
+        ];
+        let result = make_crossref_result("owner", "repo", 0.8, vec![], matches);
+        let (_discovered, match_details, _unique_topics) = build_compare_data(&result);
+        assert_eq!(match_details.len(), 3);
+    }
+
+    #[test]
+    fn match_detail_rel_pct_and_color() {
+        let md = MatchDetail {
+            own_repo: "test".into(),
+            relevance: 0.85,
+            reason: "test".into(),
+        };
+        assert_eq!(md.rel_pct(), 85);
+        assert_eq!(md.rel_color(), "text-green-400");
+
+        let md_low = MatchDetail {
+            own_repo: "test".into(),
+            relevance: 0.3,
+            reason: "test".into(),
+        };
+        assert_eq!(md_low.rel_pct(), 30);
+        assert_eq!(md_low.rel_color(), "text-red-400");
+    }
+
     fn mock_result(name: &str, stars: u64, lang: &str, relevance: f64) -> CrossRefResult {
         CrossRefResult {
             analysis: AnalysisResult {

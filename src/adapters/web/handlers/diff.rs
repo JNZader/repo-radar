@@ -201,7 +201,11 @@ mod tests {
         }
     }
 
-    fn test_state_with_two_scans() -> (AppState, String, String) {
+    /// Returns `(AppState, id_a, id_b, _dir)`.
+    /// The caller MUST bind `_dir` to keep the temp directory alive for the
+    /// duration of the test. Dropping it early deletes the scan files on disk
+    /// and causes 404 responses.
+    fn test_state_with_two_scans() -> (AppState, String, String, tempfile::TempDir) {
         let (progress_tx, _) = broadcast::channel(16);
         let dir = tempfile::tempdir().unwrap();
         let store = crate::infra::scan_store::ScanResultStore::new(dir.path().join("results"));
@@ -218,26 +222,12 @@ mod tests {
             scan_store: Arc::new(store),
         };
 
-        (state, meta_a.id, meta_b.id)
-    }
-
-    fn test_state_empty() -> AppState {
-        let (progress_tx, _) = broadcast::channel(16);
-        let dir = tempfile::tempdir().unwrap();
-        AppState {
-            config: AppConfig::default(),
-            scan_status: Arc::new(Mutex::new(ScanStatus::default())),
-            last_results: Arc::new(RwLock::new(None)),
-            progress_tx,
-            scan_store: Arc::new(crate::infra::scan_store::ScanResultStore::new(
-                dir.path().join("results"),
-            )),
-        }
+        (state, meta_a.id, meta_b.id, dir)
     }
 
     #[tokio::test]
     async fn diff_html_returns_200_for_valid_ids() {
-        let (state, id_a, id_b) = test_state_with_two_scans();
+        let (state, id_a, id_b, _dir) = test_state_with_two_scans();
         let app = router(state);
 
         let response = app
@@ -262,7 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn diff_api_returns_json_with_correct_shape() {
-        let (state, id_a, id_b) = test_state_with_two_scans();
+        let (state, id_a, id_b, _dir) = test_state_with_two_scans();
         let app = router(state);
 
         let response = app
@@ -304,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn diff_html_returns_404_for_invalid_scan_id() {
-        let (state, id_a, _id_b) = test_state_with_two_scans();
+        let (state, id_a, _id_b, _dir) = test_state_with_two_scans();
         let app = router(state);
 
         let response = app
@@ -322,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn diff_default_redirects_or_renders_latest_two_scans() {
-        let (state, _id_a, _id_b) = test_state_with_two_scans();
+        let (state, _id_a, _id_b, _dir) = test_state_with_two_scans();
         let app = router(state);
 
         let response = app

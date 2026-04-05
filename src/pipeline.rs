@@ -323,4 +323,162 @@ mod tests {
         assert_eq!(report.reported, 0);
         assert!(results.is_empty());
     }
+
+    // ── failing adapters for error-path tests ─────────────────────────────────
+
+    use crate::domain::filter::Filter;
+    use crate::domain::model::{FeedEntry, RepoCandidate};
+    use crate::domain::source::Source;
+    use crate::infra::error::{FilterError, SourceError};
+
+    struct FailingSource;
+    impl Source for FailingSource {
+        fn fetch(&self) -> impl std::future::Future<Output = Result<Vec<FeedEntry>, SourceError>> + Send {
+            async { Err(SourceError::ParseFailed("source boom".into())) }
+        }
+        fn name(&self) -> &'static str { "failing-source" }
+    }
+
+    struct FailingFilter;
+    impl Filter for FailingFilter {
+        fn filter(&self, _entries: Vec<FeedEntry>) -> impl std::future::Future<Output = Result<Vec<RepoCandidate>, FilterError>> + Send {
+            async { Err(FilterError::GitHubApi("filter boom".into())) }
+        }
+    }
+
+    /// A source that returns N feed entries with valid-enough URLs for dedup.
+    struct CountingSource(usize);
+    impl Source for CountingSource {
+        fn fetch(&self) -> impl std::future::Future<Output = Result<Vec<FeedEntry>, SourceError>> + Send {
+            use chrono::Utc;
+            use url::Url;
+            use crate::domain::model::FeedEntry;
+
+            let count = self.0;
+            async move {
+                let entries = (0..count)
+                    .map(|i| FeedEntry {
+                        title: format!("repo-{i}"),
+                        repo_url: Url::parse(&format!("https://github.com/owner/repo-{i}")).unwrap(),
+                        description: None,
+                        published: Some(Utc::now()),
+                        source_name: "test".into(),
+                    })
+                    .collect();
+                Ok(entries)
+            }
+        }
+        fn name(&self) -> &'static str { "counting-source" }
+    }
+
+    #[tokio::test]
+    async fn pipeline_fails_when_source_errors() {
+        use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::categorizer::NoopCategorizer;
+        use crate::adapters::crossref::NoopCrossRef;
+        use crate::adapters::reporter::NoopReporter;
+
+        let dir = tempfile::tempdir().unwrap();
+        let seen = SeenStore::load(&dir.path().join("seen.json")).unwrap();
+
+        let mut pipeline = Pipeline::new(
+            FailingSource,
+            FailingFilter,
+            NoopCategorizer,
+            NoopAnalyzer,
+            NoopCrossRef,
+            NoopReporter,
+            seen,
+            None,
+        );
+
+        let result = pipeline.run().await;
+        assert!(result.is_err(), "pipeline should fail when source errors");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, PipelineError::Source(_)),
+            "expected PipelineError::Source, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_fails_when_filter_errors() {
+        use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::categorizer::NoopCategorizer;
+        use crate::adapters::crossref::NoopCrossRef;
+        use crate::adapters::reporter::NoopReporter;
+
+        let dir = tempfile::tempdir().unwrap();
+        let seen = SeenStore::load(&dir.path().join("seen.json")).unwrap();
+
+        // CountingSource produces entries so filter actually receives them → fails.
+        let mut pipeline = Pipeline::new(
+            CountingSource(3),
+            FailingFilter,
+            NoopCategorizer,
+            NoopAnalyzer,
+            NoopCrossRef,
+            NoopReporter,
+            seen,
+            None,
+        );
+        let result = pipeline.run().await;
+        assert!(result.is_err(), "pipeline should fail when filter errors");
+        assert!(
+            matches!(result.unwrap_err(), PipelineError::Filter(_)),
+            "expected PipelineError::Filter"
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_skips_seen_entries() {
+        use crate::adapters::analyzer::NoopAnalyzer;
+        use crate::adapters::categorizer::NoopCategorizer;
+        use crate::adapters::crossref::NoopCrossRef;
+        use crate::adapters::filter::NoopFilter;
+        use crate::adapters::reporter::NoopReporter;
+
+        let dir = tempfile::tempdir().unwrap();
+        let seen_path = dir.path().join("seen.json");
+        let mut seen = SeenStore::load(&seen_path).unwrap();
+
+        // Pre-mark repo-0 and repo-1 as seen
+        seen.mark_seen("https://github.com/owner/repo-0");
+        seen.mark_seen("https://github.com/owner/repo-1");
+        seen.save().unwrap();
+
+        // Reload to confirm persistence
+        let seen = SeenStore::load(&seen_path).unwrap();
+
+        let mut pipeline = Pipeline::new(
+            CountingSource(3), // produces repo-0, repo-1, repo-2
+            NoopFilter,
+            NoopCategorizer,
+            NoopAnalyzer,
+            NoopCrossRef,
+            NoopReporter,
+            seen,
+            None,
+        );
+
+        let (report, _results) = pipeline.run().await.unwrap();
+
+        assert_eq!(report.entries_fetched, 3);
+        assert_eq!(report.entries_new, 1, "only repo-2 is new — 0 and 1 are seen");
+    }
+
+    #[test]
+    fn pipeline_report_display_contains_categorized() {
+        let report = PipelineReport {
+            entries_fetched: 5,
+            entries_new: 5,
+            candidates_filtered: 4,
+            categorized: 4,
+            analyzed: 3,
+            crossrefed: 3,
+            reported: 3,
+        };
+        let output = format!("{report}");
+        assert!(output.contains("4 categorized"), "display must mention categorized count");
+    }
 }

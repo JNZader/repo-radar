@@ -302,6 +302,123 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_scan_b() {
+        // All A repos should appear as removed when B is empty
+        let results_a = vec![
+            make_result("owner", "repo-1", 0.8, vec![]),
+            make_result("owner", "repo-2", 0.6, vec![]),
+        ];
+        let results_b: Vec<CrossRefResult> = vec![];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert!(diff.new_repos.is_empty());
+        assert_eq!(diff.removed_repos.len(), 2, "all repos should be removed");
+        assert!(diff.changed_repos.is_empty());
+        assert_eq!(diff.unchanged_count, 0);
+    }
+
+    #[test]
+    fn test_both_scans_empty() {
+        let results_a: Vec<CrossRefResult> = vec![];
+        let results_b: Vec<CrossRefResult> = vec![];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert!(diff.new_repos.is_empty());
+        assert!(diff.removed_repos.is_empty());
+        assert!(diff.changed_repos.is_empty());
+        assert_eq!(diff.unchanged_count, 0);
+    }
+
+    #[test]
+    fn test_same_score_not_classified_as_changed() {
+        // Repos with exactly the same score must land in unchanged_count, never in changed_repos
+        let results_a = vec![
+            make_result("owner", "repo-a", 0.7, vec![]),
+            make_result("owner", "repo-b", 0.5, vec![]),
+        ];
+        let results_b = vec![
+            make_result("owner", "repo-a", 0.7, vec![]),
+            make_result("owner", "repo-b", 0.5, vec![]),
+        ];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert!(diff.changed_repos.is_empty(), "identical scores must not produce changed repos");
+        assert_eq!(diff.unchanged_count, 2);
+        assert!(diff.new_repos.is_empty());
+        assert!(diff.removed_repos.is_empty());
+    }
+
+    #[test]
+    fn test_large_diff_mixed_categories() {
+        // 10 repos: 4 new, 3 removed, 2 changed (delta >= 0.05), 1 unchanged
+        let results_a: Vec<_> = vec![
+            make_result("owner", "stable", 0.5, vec![]),       // unchanged (delta=0)
+            make_result("owner", "changed-up", 0.4, vec![]),   // delta +0.2 → changed
+            make_result("owner", "changed-down", 0.8, vec![]), // delta -0.2 → changed
+            make_result("owner", "removed-1", 0.6, vec![]),
+            make_result("owner", "removed-2", 0.7, vec![]),
+            make_result("owner", "removed-3", 0.5, vec![]),
+        ];
+        let results_b: Vec<_> = vec![
+            make_result("owner", "stable", 0.5, vec![]),        // unchanged
+            make_result("owner", "changed-up", 0.6, vec![]),    // delta +0.2
+            make_result("owner", "changed-down", 0.6, vec![]),  // delta -0.2
+            make_result("owner", "new-1", 0.9, vec![]),
+            make_result("owner", "new-2", 0.85, vec![]),
+            make_result("owner", "new-3", 0.75, vec![]),
+            make_result("owner", "new-4", 0.65, vec![]),
+        ];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert_eq!(diff.new_repos.len(), 4, "expected 4 new repos");
+        assert_eq!(diff.removed_repos.len(), 3, "expected 3 removed repos");
+        assert_eq!(diff.changed_repos.len(), 2, "expected 2 changed repos");
+        assert_eq!(diff.unchanged_count, 1, "expected 1 unchanged repo");
+
+        // New repos sorted by relevance descending
+        assert!(
+            diff.new_repos[0].overall_relevance >= diff.new_repos[1].overall_relevance,
+            "new_repos must be sorted by relevance desc"
+        );
+
+        // Changed repos sorted by absolute delta descending
+        let deltas: Vec<f64> = diff.changed_repos.iter().map(|r| r.score_delta.abs()).collect();
+        assert!(deltas[0] >= deltas[deltas.len() - 1], "changed_repos must be sorted by |delta| desc");
+    }
+
+    #[test]
+    fn test_threshold_exactly_below_does_not_change() {
+        // delta = 0.0499... must stay as unchanged (just below threshold)
+        let results_a = vec![make_result("owner", "repo", 0.5, vec![])];
+        let results_b = vec![make_result("owner", "repo", 0.5499, vec![])];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert!(diff.changed_repos.is_empty(), "delta < 0.05 must be unchanged");
+        assert_eq!(diff.unchanged_count, 1);
+    }
+
+    #[test]
+    fn test_negative_delta_classified_as_changed() {
+        // Score drops by more than threshold → should appear in changed_repos with negative delta
+        let results_a = vec![make_result("owner", "repo", 0.8, vec![])];
+        let results_b = vec![make_result("owner", "repo", 0.7, vec![])];
+
+        let diff = compute_diff(make_meta("a"), make_meta("b"), &results_a, &results_b);
+
+        assert_eq!(diff.changed_repos.len(), 1);
+        assert!(diff.changed_repos[0].score_delta < 0.0, "negative delta expected");
+        assert!(
+            (diff.changed_repos[0].score_delta - (-0.1)).abs() < 1e-10,
+            "delta should be -0.1"
+        );
+    }
+
+    #[test]
     fn test_new_ideas_detection() {
         let results_a = vec![make_result(
             "owner",

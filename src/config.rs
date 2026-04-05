@@ -448,12 +448,40 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
     // Env var overlays for secrets
     if let Ok(token) = std::env::var("REPO_RADAR_GITHUB_TOKEN") {
         config.general.github_token = Some(token);
+    } else if config.general.github_token.is_none() {
+        // Fallback: try `gh auth token` if gh CLI is available and authenticated
+        if let Ok(output) = std::process::Command::new("gh")
+            .args(["auth", "token"])
+            .output()
+        {
+            if output.status.success() {
+                let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !token.is_empty() {
+                    tracing::debug!("GitHub token resolved from gh CLI");
+                    config.general.github_token = Some(token);
+                }
+            }
+        }
     }
     if let Ok(key) = std::env::var("REPO_RADAR_LLM_API_KEY") {
         config.analyzer.llm_api_key = Some(key);
     }
     if let Ok(username) = std::env::var("REPO_RADAR_GITHUB_USERNAME") {
         config.crossref.github_username = Some(username);
+    } else if config.crossref.github_username.is_none() {
+        // Fallback: resolve username from `gh api user`
+        if let Ok(output) = std::process::Command::new("gh")
+            .args(["api", "user", "--jq", ".login"])
+            .output()
+        {
+            if output.status.success() {
+                let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !username.is_empty() {
+                    tracing::debug!("GitHub username resolved from gh CLI: {username}");
+                    config.crossref.github_username = Some(username);
+                }
+            }
+        }
     }
     if let Ok(dashboard_token) = std::env::var("REPO_RADAR_DASHBOARD_TOKEN") {
         config.general.dashboard_token = Some(dashboard_token);
@@ -931,11 +959,13 @@ min_stars = 5
         unsafe { std::env::remove_var("REPO_RADAR_LLM_API_KEY") };
         unsafe { std::env::remove_var("REPO_RADAR_GITHUB_USERNAME") };
 
-        // Reload from saved file WITHOUT env vars
+        // Reload from saved file WITHOUT env vars.
+        // Token/username may be resolved from `gh auth token` fallback — that's fine.
+        // What matters is that the *env var secret values* are NOT present.
         let reloaded = load_config(Some(&dst_path)).unwrap();
-        assert!(reloaded.general.github_token.is_none());
+        assert_ne!(reloaded.general.github_token.as_deref(), Some("secret-token"));
         assert!(reloaded.analyzer.llm_api_key.is_none());
-        assert!(reloaded.crossref.github_username.is_none());
+        assert_ne!(reloaded.crossref.github_username.as_deref(), Some("secret-user"));
 
         // Also verify the raw TOML doesn't contain the secrets
         let raw = std::fs::read_to_string(&dst_path).unwrap();
