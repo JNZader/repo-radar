@@ -23,7 +23,8 @@ expression: json
         "archived": false,
         "owner": "snapshot",
         "repo_name": "tool",
-        "category": "Other"
+        "category": "Other",
+        "semantic_score": 0.0
       },
       "summary": "A powerful snapshot testing tool for Rust projects",
       "key_features": [

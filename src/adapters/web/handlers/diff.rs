@@ -185,6 +185,7 @@ mod tests {
                     owner: "owner".to_string(),
                     repo_name: repo.to_string(),
                     category: Default::default(),
+                    semantic_score: 0.0,
                 },
                 summary: "summary".to_string(),
                 key_features: vec![],

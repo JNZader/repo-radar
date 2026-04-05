@@ -1,12 +1,17 @@
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{info, instrument};
 
+use crate::config::AnalyzerConfig;
 use crate::domain::analyzer::Analyzer;
 use crate::domain::categorizer::Categorizer;
 use crate::domain::crossref::CrossRef;
 use crate::domain::filter::Filter;
+use crate::domain::model::OwnRepoSummary;
 use crate::domain::reporter::Reporter;
+use crate::domain::scorer::semantic_score;
 use crate::domain::source::Source;
 use crate::infra::error::PipelineError;
 use crate::infra::seen::SeenStore;
@@ -65,6 +70,11 @@ where
     reporter: R,
     seen: SeenStore,
     progress_tx: Option<broadcast::Sender<ScanProgress>>,
+    /// Analyzer config — controls deep-analysis top-N and min relevance thresholds.
+    analyzer_config: AnalyzerConfig,
+    /// Pre-fetched summaries of the user's own repos for semantic pre-scoring.
+    /// When `None`, semantic scoring is skipped and all candidates go to deep analysis.
+    own_repos: Option<Vec<OwnRepoSummary>>,
 }
 
 impl<S, F, C, A, X, R> Pipeline<S, F, C, A, X, R>
@@ -96,7 +106,21 @@ where
             reporter,
             seen,
             progress_tx,
+            analyzer_config: AnalyzerConfig::default(),
+            own_repos: None,
         }
+    }
+
+    /// Attach analyzer config (controls deep-analysis top-N and min relevance).
+    pub fn with_analyzer_config(mut self, config: AnalyzerConfig) -> Self {
+        self.analyzer_config = config;
+        self
+    }
+
+    /// Attach pre-fetched own-repo summaries for semantic pre-scoring.
+    pub fn with_own_repos(mut self, repos: Vec<OwnRepoSummary>) -> Self {
+        self.own_repos = Some(repos);
+        self
     }
 
     /// Send a progress event if a channel is configured. Silently ignores if None.
@@ -149,9 +173,58 @@ where
         let candidates = self.categorizer.categorize(candidates)?;
         info!(count = candidates.len(), "candidates categorized");
 
+        // Semantic pre-scoring: score each candidate against own repos when available.
+        let mut candidates = candidates;
+        if let Some(ref own_repos) = self.own_repos {
+            info!(own_repo_count = own_repos.len(), "running semantic pre-scoring");
+            for candidate in &mut candidates {
+                candidate.semantic_score = semantic_score(
+                    candidate.entry.description.as_deref(),
+                    &candidate.topics,
+                    own_repos,
+                );
+                tracing::debug!(
+                    repo = %candidate.entry.repo_url,
+                    score = candidate.semantic_score,
+                    topics = ?candidate.topics,
+                    description = ?candidate.entry.description,
+                    "semantic score"
+                );
+            }
+        }
+
+        // Select top-N candidates for deep analysis based on semantic score.
+        let candidates_for_analysis = {
+            let top_n = self.analyzer_config.deep_analysis_top_n;
+            let min_rel = self.analyzer_config.deep_analysis_min_relevance;
+            if top_n > 0 && self.own_repos.is_some() {
+                let mut scored = candidates.clone();
+                scored.sort_by(|a, b| {
+                    b.semantic_score
+                        .partial_cmp(&a.semantic_score)
+                        .unwrap_or(Ordering::Equal)
+                });
+                let filtered: Vec<_> = scored
+                    .into_iter()
+                    .filter(|c| c.semantic_score >= min_rel)
+                    .take(top_n)
+                    .collect();
+                info!(
+                    total_candidates = candidates.len(),
+                    selected_for_deep = filtered.len(),
+                    top_n,
+                    min_relevance = min_rel,
+                    "selected candidates for deep analysis"
+                );
+                filtered
+            } else {
+                candidates.clone()
+            }
+        };
+
         self.emit_progress("analyze", 55, "Analyzing repos...");
         info!("analyzing candidates");
-        let analyzed = self.analyzer.analyze(candidates).await?;
+        let analyzed = self.analyzer.analyze(candidates_for_analysis).await?;
         let analyzed_count = analyzed.len();
         info!(count = analyzed_count, "analyzed results");
 

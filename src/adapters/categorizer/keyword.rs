@@ -178,6 +178,7 @@ mod tests {
             owner: "owner".into(),
             repo_name: name.into(),
             category: RepoCategory::default(),
+            semantic_score: 0.0,
         }
     }
 

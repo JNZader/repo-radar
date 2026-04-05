@@ -184,6 +184,7 @@ mod tests {
                     owner: "owner".into(),
                     repo_name: name.into(),
                     category: Default::default(),
+                    semantic_score: 0.0,
                 },
                 summary: "summary".into(),
                 key_features: vec!["fast".into()],

@@ -6,7 +6,7 @@ use std::future::Future;
 use tracing::{info, warn};
 
 use crate::domain::crossref::CrossRef;
-use crate::domain::model::{AnalysisResult, CrossRefResult, RepoMatch};
+use crate::domain::model::{AnalysisResult, CrossRefResult, OwnRepoSummary, RepoMatch};
 use crate::infra::error::CrossRefError;
 
 /// A user's own repository with language and topics for similarity matching.
@@ -82,6 +82,44 @@ impl GitHubCrossRef {
             .collect();
 
         Ok(repos)
+    }
+
+    /// Fetch the authenticated user's own repos as `OwnRepoSummary` for semantic scoring.
+    pub async fn fetch_own_repos_summary(&self) -> Result<Vec<OwnRepoSummary>, CrossRefError> {
+        let page = self
+            .octocrab
+            .get::<Vec<serde_json::Value>, _, _>(
+                format!("/users/{}/repos?per_page=100&type=owner", self.username),
+                None::<&()>,
+            )
+            .await
+            .map_err(|e| CrossRefError::Network(format!("failed to fetch own repos: {e}")))?;
+
+        let summaries = page
+            .into_iter()
+            .map(|r| {
+                let name = r["full_name"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_string();
+                let description = r["description"].as_str().map(String::from);
+                let topics = r["topics"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                OwnRepoSummary {
+                    name,
+                    description,
+                    topics,
+                }
+            })
+            .collect();
+
+        Ok(summaries)
     }
 
     /// Compute Jaccard similarity between an analysis result and a user's own repo,
@@ -260,6 +298,7 @@ mod tests {
                 owner: "test".into(),
                 repo_name: "test-repo".into(),
                 category: Default::default(),
+                semantic_score: 0.0,
             },
             summary: "A great test repo".into(),
             key_features: vec!["fast".into()],

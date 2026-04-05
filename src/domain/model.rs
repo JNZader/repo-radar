@@ -60,6 +60,18 @@ pub struct RepoCandidate {
     pub repo_name: String,
     #[serde(default)]
     pub category: RepoCategory,
+    /// Semantic similarity score against the user's own repos (0.0–1.0).
+    /// Computed before deep analysis to prioritize candidates.
+    #[serde(default)]
+    pub semantic_score: f64,
+}
+
+/// A compact representation of one of the user's own repos used for semantic scoring.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OwnRepoSummary {
+    pub name: String,
+    pub description: Option<String>,
+    pub topics: Vec<String>,
 }
 
 /// Result of analyzing a repo's content.
@@ -181,6 +193,7 @@ mod tests {
             owner: "owner".into(),
             repo_name: "awesome-tool".into(),
             category: RepoCategory::default(),
+            semantic_score: 0.0,
         }
     }
 
@@ -265,6 +278,7 @@ mod tests {
             owner: "owner".into(),
             repo_name: "repo".into(),
             category: RepoCategory::default(),
+            semantic_score: 0.0,
         };
         let json = serde_json::to_string(&candidate).unwrap();
         let deserialized: RepoCandidate = serde_json::from_str(&json).unwrap();

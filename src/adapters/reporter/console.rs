@@ -123,6 +123,7 @@ mod tests {
                     owner: "owner".into(),
                     repo_name: "awesome-tool".into(),
                     category: Default::default(),
+                    semantic_score: 0.0,
                 },
                 summary: "An awesome tool for Rust developers".into(),
                 key_features: vec!["fast".into(), "safe".into()],

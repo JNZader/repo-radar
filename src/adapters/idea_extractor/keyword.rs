@@ -213,6 +213,7 @@ mod tests {
                     owner: "owner".into(),
                     repo_name: repo_name.into(),
                     category: RepoCategory::default(),
+                    semantic_score: 0.0,
                 },
                 summary: format!("Summary of {repo_name}"),
                 key_features: features.iter().map(|f| (*f).to_string()).collect(),

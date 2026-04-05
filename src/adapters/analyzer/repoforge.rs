@@ -140,6 +140,7 @@ mod tests {
             owner: "owner".into(),
             repo_name: "test-repo".into(),
             category: Default::default(),
+            semantic_score: 0.0,
         }
     }
 

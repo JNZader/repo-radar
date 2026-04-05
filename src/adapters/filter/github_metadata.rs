@@ -265,6 +265,7 @@ async fn filter_entries(
             owner: owner.clone(),
             repo_name: repo.clone(),
             category: RepoCategory::default(),
+            semantic_score: 0.0,
         });
     }
 

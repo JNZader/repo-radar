@@ -289,6 +289,12 @@ pub struct AnalyzerConfig {
     /// Loaded from `REPO_RADAR_LLM_API_KEY` env var at runtime.
     #[serde(skip)]
     pub llm_api_key: Option<String>,
+    /// Top N repos to send to deep analysis (0 = disabled, send all).
+    #[serde(default = "default_deep_analysis_top_n")]
+    pub deep_analysis_top_n: usize,
+    /// Minimum semantic score to qualify for deep analysis (0.0–1.0).
+    #[serde(default = "default_deep_analysis_min_relevance")]
+    pub deep_analysis_min_relevance: f64,
 }
 
 impl Default for AnalyzerConfig {
@@ -298,12 +304,22 @@ impl Default for AnalyzerConfig {
             timeout_secs: default_timeout_secs(),
             llm_model: None,
             llm_api_key: None,
+            deep_analysis_top_n: default_deep_analysis_top_n(),
+            deep_analysis_min_relevance: default_deep_analysis_min_relevance(),
         }
     }
 }
 
 const fn default_timeout_secs() -> u64 {
     60
+}
+
+const fn default_deep_analysis_top_n() -> usize {
+    5
+}
+
+const fn default_deep_analysis_min_relevance() -> f64 {
+    0.15
 }
 
 /// Cross-reference settings.

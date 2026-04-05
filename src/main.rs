@@ -211,7 +211,15 @@ async fn handle_scan(config_path_override: Option<&std::path::Path>, dry_run: bo
     // Categorizer: always use keyword-based categorizer
     let categorizer = CategorizerAdapter::Keyword(KeywordCategorizer::new());
 
-    let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None);
+    // Fetch own repos for semantic scoring (best-effort — empty vec if unavailable)
+    let own_repos = match &crossref {
+        CrossRefAdapter::GitHub(gh) => gh.fetch_own_repos_summary().await.unwrap_or_default(),
+        CrossRefAdapter::Noop(_) => vec![],
+    };
+
+    let mut pipeline = Pipeline::new(source, filter, categorizer, analyzer, crossref, reporter, seen, None)
+        .with_analyzer_config(config.analyzer.clone())
+        .with_own_repos(own_repos);
     let (report, results) = pipeline.run().await.into_diagnostic()?;
 
     // Persist scan results for later use by `report` and `ideas` commands
