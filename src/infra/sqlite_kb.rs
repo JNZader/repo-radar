@@ -62,12 +62,12 @@ impl SqliteKb {
                 id, owner, repo_name, url, stars, language, topics,
                 pushed_at, first_seen_at, last_seen_at, analyzed_at,
                 status, what, problem, architecture, techniques, steal,
-                uniqueness, raw_llm_response
+                uniqueness, raw_llm_response, is_own
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16, ?17,
-                ?18, ?19
+                ?18, ?19, ?20
             )",
             rusqlite::params![
                 analysis.owner_repo_id(),
@@ -89,6 +89,7 @@ impl SqliteKb {
                 steal_json,
                 analysis.uniqueness,
                 analysis.raw_llm_response,
+                analysis.is_own as i64,
             ],
         )
         .map_err(|e| KbError::Sqlite(e.to_string()))?;
@@ -142,7 +143,7 @@ impl SqliteKb {
                 "SELECT r.id, r.owner, r.repo_name, r.url, r.stars, r.language,
                         r.topics, r.pushed_at, r.first_seen_at, r.last_seen_at,
                         r.analyzed_at, r.status, r.what, r.problem, r.architecture,
-                        r.techniques, r.steal, r.uniqueness, r.raw_llm_response
+                        r.techniques, r.steal, r.uniqueness, r.raw_llm_response, r.is_own
                  FROM repos_fts
                  JOIN repos r ON repos_fts.id = r.id
                  WHERE repos_fts MATCH ?1
@@ -168,7 +169,7 @@ impl SqliteKb {
             "SELECT id, owner, repo_name, url, stars, language, topics,
                     pushed_at, first_seen_at, last_seen_at, analyzed_at,
                     status, what, problem, architecture, techniques, steal,
-                    uniqueness, raw_llm_response
+                    uniqueness, raw_llm_response, is_own
              FROM repos WHERE id = ?1",
             [id],
             row_to_kb_analysis,
@@ -235,7 +236,26 @@ fn run_migrations(conn: &Connection) -> Result<(), KbError> {
 
         PRAGMA journal_mode=WAL;",
     )
-    .map_err(|e| KbError::Sqlite(e.to_string()))
+    .map_err(|e| KbError::Sqlite(e.to_string()))?;
+
+    // Guarded migration: add `is_own` column only if it doesn't exist yet.
+    // This keeps run_migrations() idempotent on existing databases.
+    let has_is_own: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('repos') WHERE name='is_own'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if !has_is_own {
+        conn.execute_batch(
+            "ALTER TABLE repos ADD COLUMN is_own INTEGER NOT NULL DEFAULT 0",
+        )
+        .map_err(|e| KbError::Sqlite(e.to_string()))?;
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +282,7 @@ fn row_to_kb_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbAnalysis> {
     let steal_json: String = row.get(16)?;
     let uniqueness: String = row.get(17)?;
     let raw_llm_response: Option<String> = row.get(18)?;
+    let is_own_int: i64 = row.get(19).unwrap_or(0);
 
     let _ = id; // composite key derived from owner/repo_name
 
@@ -306,6 +327,7 @@ fn row_to_kb_analysis(row: &rusqlite::Row<'_>) -> rusqlite::Result<KbAnalysis> {
         steal,
         uniqueness,
         raw_llm_response,
+        is_own: is_own_int != 0,
     })
 }
 
@@ -360,6 +382,7 @@ mod tests {
             steal: vec!["plugin system".into()],
             uniqueness: "Blazing fast".into(),
             raw_llm_response: None,
+            is_own: false,
         }
     }
 
@@ -594,5 +617,37 @@ mod tests {
         let results = kb.search("rust AND cli OR").expect("should not panic");
         // Result may be empty or non-empty — just verifying no crash
         let _ = results;
+    }
+
+    // ── Phase 5: is_own migration safety ────────────────────────────────────
+
+    #[test]
+    fn migration_is_idempotent_for_existing_db_with_is_own_column() {
+        // Create DB, run migrations once (creates is_own column)
+        // Run migrations AGAIN on the same DB (by opening it a second time)
+        // Verify: no panic, no error, DB is still functional
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.sqlite");
+        let _kb1 = SqliteKb::open(&path).expect("first open");
+        let kb2 = SqliteKb::open(&path).expect("second open — must not fail");
+        // Verify it's still usable
+        let results = kb2.search("anything").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn upsert_and_get_preserves_is_own_true() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let kb = SqliteKb::open(&dir.path().join("test.sqlite")).unwrap();
+
+        let mut analysis = sample_analysis("local", "my-project");
+        analysis.is_own = true;
+
+        kb.upsert(&analysis).unwrap();
+        let retrieved = kb
+            .get("local/my-project")
+            .unwrap()
+            .expect("should exist");
+        assert!(retrieved.is_own, "is_own should be true after round-trip");
     }
 }

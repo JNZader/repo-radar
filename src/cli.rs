@@ -91,6 +91,25 @@ pub enum Command {
         scan_b: Option<String>,
     },
 
+    /// Compare a source repo against a target repo and generate actionable ideas.
+    Compare {
+        /// External repo to study for ideas (GitHub URL or owner/repo shorthand)
+        #[arg(long)]
+        source: String,
+
+        /// Your own repo to improve (local path or GitHub URL)
+        #[arg(long)]
+        target: String,
+
+        /// Force re-analysis even if repos are cached in the knowledge base
+        #[arg(long, default_value_t = false)]
+        force: bool,
+
+        /// Save ideas to a markdown file (optional)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
     /// Start the web dashboard server.
     Serve {
         /// Port to listen on.

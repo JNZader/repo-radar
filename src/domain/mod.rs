@@ -9,3 +9,4 @@ pub mod idea_extractor;
 pub mod diff;
 pub mod scorer;
 pub mod kb;
+pub mod compare;

@@ -7,3 +7,5 @@ pub mod reporter;
 pub mod idea_extractor;
 pub mod web;
 pub mod kb;
+pub mod github;
+pub mod compare;

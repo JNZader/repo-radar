@@ -1933,6 +1933,7 @@ dependencies = [
  "assert_cmd",
  "assert_matches",
  "axum",
+ "base64",
  "chrono",
  "clap",
  "dirs",

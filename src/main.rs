@@ -6,10 +6,13 @@ use tracing_subscriber::EnvFilter;
 
 use repo_radar::adapters::analyzer::{AnalyzerAdapter, NoopAnalyzer, RepoforgeAnalyzer};
 use repo_radar::adapters::categorizer::{CategorizerAdapter, KeywordCategorizer};
+use repo_radar::adapters::compare::LlmCompareService;
 use repo_radar::adapters::crossref::{CrossRefAdapter, NoopCrossRef};
 use repo_radar::adapters::crossref::github_crossref::GitHubCrossRef;
 use repo_radar::adapters::filter::{FilterAdapter, GitHubMetadataFilter, NoopFilter};
+use repo_radar::adapters::github::readme_fetcher::GithubReadmeFetcher;
 use repo_radar::adapters::idea_extractor::KeywordIdeaExtractor;
+use repo_radar::adapters::kb::LlmKbAnalyzer;
 use repo_radar::adapters::reporter::{
     ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
 };
@@ -20,10 +23,14 @@ use repo_radar::adapters::source::{
 use repo_radar::adapters::web::{self, AppState};
 use repo_radar::cli::{Cli, Command, ConfigAction};
 use repo_radar::config::{config_path, load_config, write_default_config, SourceConfig};
+use repo_radar::domain::compare::CompareService;
 use repo_radar::domain::idea_extractor::IdeaExtractor;
+use repo_radar::domain::kb::KbAnalyzer;
 use repo_radar::domain::model::CrossRefResult;
 use repo_radar::infra::cache::RepoCache;
+use repo_radar::infra::repoforge::RepoforgeRunner;
 use repo_radar::infra::seen::SeenStore;
+use repo_radar::infra::sqlite_kb::SqliteKb;
 use repo_radar::pipeline::Pipeline;
 
 fn init_tracing(verbose: u8) {
@@ -80,6 +87,21 @@ async fn main() -> Result<()> {
                 cli.config.as_deref(),
                 scan_a.as_deref(),
                 scan_b.as_deref(),
+            )
+            .await?;
+        }
+        Command::Compare {
+            ref source,
+            ref target,
+            force,
+            ref output,
+        } => {
+            handle_compare(
+                cli.config.as_deref(),
+                source,
+                target,
+                force,
+                output.as_deref(),
             )
             .await?;
         }
@@ -622,6 +644,222 @@ async fn handle_diff(
             }
         }
         println!();
+    }
+
+    Ok(())
+}
+
+async fn handle_compare(
+    config_path_override: Option<&std::path::Path>,
+    source: &str,
+    target: &str,
+    force: bool,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    let config = load_config(config_path_override).into_diagnostic()?;
+    info!("config loaded for compare command");
+
+    // -- Initialize shared components ------------------------------------------
+    let kb_db_path = config.kb.db_path.clone();
+    let kb = SqliteKb::open(&kb_db_path).into_diagnostic()?;
+
+    let llm_analyzer = LlmKbAnalyzer::new(
+        config.kb.llm_gateway_url.clone(),
+        config.kb.llm_model.clone(),
+        config.kb.llm_auth_token.clone(),
+    );
+    let compare_service = LlmCompareService::new(
+        config.kb.llm_gateway_url.clone(),
+        config.kb.llm_model.clone(),
+        config.kb.llm_auth_token.clone(),
+    );
+    let fetcher = GithubReadmeFetcher::new(config.general.github_token.clone());
+
+    // -- A) Resolve SOURCE repo (always GitHub) --------------------------------
+    let source_analysis = {
+        let ctx = fetcher
+            .fetch(source)
+            .await
+            .into_diagnostic()
+            .map_err(|e| miette::miette!("fetching source repo {source}: {e}"))?;
+
+        let needs = if force {
+            true
+        } else {
+            kb.needs_analysis(&ctx.owner, &ctx.repo_name, ctx.pushed_at)
+                .into_diagnostic()?
+        };
+
+        if needs {
+            info!(repo = %format!("{}/{}", ctx.owner, ctx.repo_name), "analyzing source repo");
+            let mut analysis = llm_analyzer
+                .analyze(&ctx.context, &ctx.owner, &ctx.repo_name)
+                .await
+                .into_diagnostic()?;
+            analysis.is_own = false;
+            analysis.owner = ctx.owner.clone();
+            analysis.repo_name = ctx.repo_name.clone();
+            analysis.pushed_at = ctx.pushed_at;
+            kb.upsert(&analysis).into_diagnostic()?;
+            analysis
+        } else {
+            let id = format!("{}/{}", ctx.owner, ctx.repo_name);
+            kb.get(&id)
+                .into_diagnostic()?
+                .ok_or_else(|| miette::miette!("source repo {id} not found in KB after cache check"))?
+        }
+    };
+
+    // -- B) Resolve TARGET repo (local path or GitHub URL) --------------------
+    let target_analysis = {
+        // Detect GitHub URL or owner/repo shorthand vs local path
+        let is_github = target.starts_with("https://")
+            || target.starts_with("http://")
+            || (target.contains('/') && !target.contains(std::path::MAIN_SEPARATOR) && !std::path::Path::new(target).exists());
+
+        if is_github {
+            let ctx = fetcher
+                .fetch(target)
+                .await
+                .into_diagnostic()
+                .map_err(|e| miette::miette!("fetching target repo {target}: {e}"))?;
+
+            let needs = if force {
+                true
+            } else {
+                kb.needs_analysis(&ctx.owner, &ctx.repo_name, ctx.pushed_at)
+                    .into_diagnostic()?
+            };
+
+            if needs {
+                info!(repo = %format!("{}/{}", ctx.owner, ctx.repo_name), "analyzing target repo (github)");
+                let mut analysis = llm_analyzer
+                    .analyze(&ctx.context, &ctx.owner, &ctx.repo_name)
+                    .await
+                    .into_diagnostic()?;
+                analysis.is_own = true;
+                analysis.owner = ctx.owner.clone();
+                analysis.repo_name = ctx.repo_name.clone();
+                analysis.pushed_at = ctx.pushed_at;
+                kb.upsert(&analysis).into_diagnostic()?;
+                analysis
+            } else {
+                let id = format!("{}/{}", ctx.owner, ctx.repo_name);
+                kb.get(&id)
+                    .into_diagnostic()?
+                    .ok_or_else(|| miette::miette!("target repo {id} not found in KB after cache check"))?
+            }
+        } else {
+            // Local path
+            let local_path = std::path::PathBuf::from(target);
+            if !local_path.exists() {
+                return Err(miette::miette!("target path does not exist: {target}"));
+            }
+
+            // Derive owner/repo_name from path
+            let repo_name = local_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_owned();
+            let owner = "local".to_owned();
+            let id = format!("local/{repo_name}");
+
+            // Get pushed_at from git log
+            let pushed_at = tokio::process::Command::new("git")
+                .args(["-C", target, "log", "-1", "--format=%cI"])
+                .output()
+                .await
+                .ok()
+                .and_then(|out| {
+                    if out.status.success() {
+                        String::from_utf8(out.stdout).ok()
+                    } else {
+                        None
+                    }
+                })
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s.trim()).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+
+            let needs = if force {
+                true
+            } else {
+                kb.needs_analysis(&owner, &repo_name, pushed_at)
+                    .into_diagnostic()?
+            };
+
+            if needs {
+                // Run repoforge export to get context
+                let repoforge_path = config
+                    .analyzer
+                    .repoforge_path
+                    .clone()
+                    .unwrap_or_else(|| std::path::PathBuf::from("repoforge"));
+                let timeout_secs = config.analyzer.timeout_secs;
+                let runner = RepoforgeRunner::new(
+                    repoforge_path,
+                    std::time::Duration::from_secs(timeout_secs),
+                );
+                info!(path = %local_path.display(), "running repoforge export on target");
+                let context = runner
+                    .export(&local_path)
+                    .await
+                    .into_diagnostic()
+                    .map_err(|e| miette::miette!("repoforge export failed for {target}: {e}"))?;
+
+                let mut analysis = llm_analyzer
+                    .analyze(&context, &owner, &repo_name)
+                    .await
+                    .into_diagnostic()?;
+                analysis.is_own = true;
+                analysis.owner = owner.clone();
+                analysis.repo_name = repo_name.clone();
+                analysis.pushed_at = pushed_at;
+                analysis.url = format!("file://{}", local_path.display());
+                kb.upsert(&analysis).into_diagnostic()?;
+                analysis
+            } else {
+                kb.get(&id)
+                    .into_diagnostic()?
+                    .ok_or_else(|| miette::miette!("target repo {id} not found in KB after cache check"))?
+            }
+        }
+    };
+
+    // -- D) Compare and format output ------------------------------------------
+    let result = compare_service
+        .compare(&source_analysis, &target_analysis)
+        .await
+        .into_diagnostic()?;
+
+    let mut markdown = format!(
+        "# Ideas: {} → {}\n\n",
+        result.source_id, result.target_id
+    );
+
+    for idea in &result.ideas {
+        markdown.push_str(&format!(
+            "## {}\n**Effort**: {} | **Impact**: {}\n\n{}\n\n---\n\n",
+            idea.title, idea.effort, idea.impact, idea.description
+        ));
+    }
+
+    println!("{markdown}");
+
+    if let Some(out_path) = output {
+        if let Some(parent) = out_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                tokio::fs::create_dir_all(parent).await.into_diagnostic()?;
+            }
+        }
+        tokio::fs::write(out_path, &markdown)
+            .await
+            .into_diagnostic()?;
+        println!(
+            "{} Written to {}",
+            "Output:".cyan().bold(),
+            out_path.display()
+        );
     }
 
     Ok(())

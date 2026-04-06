@@ -232,6 +232,11 @@ pub struct KbAnalysis {
     pub status: KbAnalysisStatus,
     /// Raw LLM response string, populated only on parse failure.
     pub raw_llm_response: Option<String>,
+    /// Whether this entry belongs to the user's own repositories.
+    /// `false` means it was discovered from external feeds; `true` means it's a
+    /// user-owned repo used as the comparison target.
+    #[serde(default)]
+    pub is_own: bool,
 }
 
 impl KbAnalysis {
