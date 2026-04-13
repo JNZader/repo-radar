@@ -1,5 +1,6 @@
 #![allow(clippy::manual_async_fn)] // Trait uses RPITIT pattern, impls must match
 
+pub mod github_skills;
 pub mod github_trending;
 pub mod hackernews;
 pub mod reddit;
@@ -14,6 +15,7 @@ use crate::domain::model::FeedEntry;
 use crate::domain::source::Source;
 use crate::infra::error::SourceError;
 
+pub use self::github_skills::GitHubSkillsSource;
 pub use self::github_trending::GitHubTrendingSource;
 pub use self::hackernews::HackerNewsSource;
 pub use self::reddit::RedditSource;
@@ -38,6 +40,7 @@ pub enum SourceAdapter {
     Noop(NoopSource),
     Rss(RssSource),
     GitHubTrending(GitHubTrendingSource),
+    GitHubSkills(GitHubSkillsSource),
     HackerNews(HackerNewsSource),
     Reddit(RedditSource),
     /// Aggregates multiple sources into one.
@@ -52,6 +55,7 @@ impl Source for SourceAdapter {
                 Self::Noop(s) => Box::pin(s.fetch()),
                 Self::Rss(s) => Box::pin(s.fetch()),
                 Self::GitHubTrending(s) => Box::pin(s.fetch()),
+                Self::GitHubSkills(s) => Box::pin(s.fetch()),
                 Self::HackerNews(s) => Box::pin(s.fetch()),
                 Self::Reddit(s) => Box::pin(s.fetch()),
                 Self::Multi(s) => Box::pin(s.fetch()),
@@ -64,6 +68,7 @@ impl Source for SourceAdapter {
             Self::Noop(s) => s.name(),
             Self::Rss(s) => s.name(),
             Self::GitHubTrending(s) => s.name(),
+            Self::GitHubSkills(s) => s.name(),
             Self::HackerNews(s) => s.name(),
             Self::Reddit(s) => s.name(),
             Self::Multi(s) => s.name(),

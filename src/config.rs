@@ -81,6 +81,11 @@ impl AppConfig {
                         errors.push(format!("sources[{i}] reddit limit must be > 0"));
                     }
                 }
+                SourceConfig::GitHubSkills { limit } => {
+                    if *limit == 0 {
+                        errors.push(format!("sources[{i}] github_skills limit must be > 0"));
+                    }
+                }
             }
         }
 
@@ -235,6 +240,17 @@ pub enum SourceConfig {
         #[serde(default = "default_reddit_limit")]
         limit: usize,
     },
+    /// GitHub Skills discovery — searches for repos with SKILL.md files.
+    #[serde(rename = "github_skills")]
+    GitHubSkills {
+        /// Maximum number of skill repos to fetch (default: 30).
+        #[serde(default = "default_skills_limit")]
+        limit: usize,
+    },
+}
+
+const fn default_skills_limit() -> usize {
+    30
 }
 
 fn default_trending_since() -> String {

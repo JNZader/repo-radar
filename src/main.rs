@@ -17,7 +17,8 @@ use repo_radar::adapters::reporter::{
     ConsoleReporter, JsonReporter, MarkdownReporter, ReporterAdapter,
 };
 use repo_radar::adapters::source::{
-    GitHubTrendingSource, HackerNewsSource, MultiSource, NoopSource, RedditSource, RssSource,
+    GitHubSkillsSource, GitHubTrendingSource, HackerNewsSource, MultiSource, NoopSource,
+    RedditSource, RssSource,
     SourceAdapter,
 };
 use repo_radar::adapters::web::{self, AppState};
@@ -913,6 +914,13 @@ fn build_source(
                     subreddits.clone(),
                     *limit,
                     client.clone(),
+                )));
+            }
+            SourceConfig::GitHubSkills { limit } => {
+                adapters.push(SourceAdapter::GitHubSkills(GitHubSkillsSource::new(
+                    client.clone(),
+                    config.general.github_token.clone(),
+                    *limit,
                 )));
             }
         }
