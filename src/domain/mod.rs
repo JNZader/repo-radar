@@ -10,3 +10,4 @@ pub mod diff;
 pub mod scorer;
 pub mod kb;
 pub mod compare;
+pub mod semantic_search;
