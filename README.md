@@ -1,23 +1,58 @@
-# repo-radar
+<div align="center">
 
-Feed-driven GitHub repository discovery engine with cross-reference analysis.
+# 📡 repo-radar
 
-repo-radar aggregates repositories from multiple sources (RSS feeds, GitHub Trending, HackerNews, Reddit), enriches them with GitHub metadata, categorizes them, and cross-references discoveries against your own repositories to surface actionable ideas.
+**Feed-driven GitHub repo discovery engine with cross-reference analysis**
 
-## Features
+[![Rust](https://img.shields.io/badge/Rust-2024_edition-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
 
-- Multi-source ingestion: RSS/Atom feeds, GitHub Trending, HackerNews, Reddit
-- GitHub metadata filtering (stars, language, topics, fork/archived exclusion)
-- Automatic categorization (AI Agents, Security, DevOps, RAG/Search, Testing, UI/UX, and more)
-- Cross-reference analysis against your own GitHub repositories
-- Idea extraction with relevance scoring and impact assessment
-- Deduplication via persistent seen-store
-- Reports in Markdown, JSON, or console output
-- Web dashboard with HTMX, Askama templates, and Chart.js
-- Optional bearer token authentication for the dashboard
-- GitHub API response caching with configurable TTL
+*A pipeline that aggregates repos from RSS, GitHub Trending, HackerNews & Reddit — enriches them with GitHub metadata — then cross-references discoveries against your own repositories to surface actionable ideas.*
 
-## Quick Start
+<!-- TODO: Add hero screenshot here -->
+<!-- <img src="docs/assets/hero.png" alt="repo-radar terminal output" width="700" /> -->
+
+</div>
+
+---
+
+## ✨ Features
+
+- 🔍 **Multi-source ingestion** — RSS/Atom feeds, GitHub Trending, HackerNews, Reddit
+- ⭐ **GitHub metadata filtering** — stars, language, topics, fork/archived exclusion
+- 🏷️ **Auto-categorization** — AI Agents, Security, DevOps, RAG/Search, Testing, UI/UX & more
+- 🔗 **Cross-reference analysis** — match discoveries against your own repos
+- 💡 **Idea extraction** — relevance scoring and impact assessment
+- 🔄 **Deduplication** — persistent seen-store across runs
+- 📊 **Multi-format reports** — Markdown, JSON, or console
+- 🖥️ **Web dashboard** — HTMX + Askama templates + Chart.js
+- 🔒 **Auth support** — optional bearer token for dashboard access
+- ⚡ **Caching** — GitHub API response caching with configurable TTL
+
+<!-- TODO: Add screenshot of terminal output showing repo discovery -->
+<!-- <img src="docs/assets/terminal-scan.png" alt="repo-radar scan output" width="600" /> -->
+
+<!-- TODO: Add screenshot of dashboard/analysis view -->
+<!-- <img src="docs/assets/dashboard.png" alt="repo-radar dashboard" width="600" /> -->
+
+## 🛠️ Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| Language | **Rust** (2024 edition) | Performance, safety, async |
+| Async Runtime | Tokio | Multi-threaded async I/O |
+| CLI | Clap | Command-line interface |
+| GitHub API | Octocrab | GitHub REST API client |
+| HTTP | reqwest | HTTP client (rustls) |
+| Feed Parsing | feed-rs | RSS & Atom feed parser |
+| Error Handling | miette | Fancy diagnostic errors |
+| Progress | indicatif | Terminal progress bars |
+| Web | Axum + HTMX + Askama | Dashboard server & templates |
+| Database | rusqlite | SQLite for seen-store & knowledge base |
+| Testing | proptest + insta | Property testing & snapshot testing |
+
+## 🚀 Quick Start
 
 ### Install
 
@@ -25,17 +60,10 @@ repo-radar aggregates repositories from multiple sources (RSS feeds, GitHub Tren
 cargo install --path .
 ```
 
-### Initialize configuration
+### Configure
 
 ```sh
-repo-radar config init
-```
-
-This creates a default config file at `$XDG_CONFIG_HOME/repo-radar/config.toml`.
-
-### Set environment variables
-
-```sh
+repo-radar config init        # Creates config at $XDG_CONFIG_HOME/repo-radar/config.toml
 export REPO_RADAR_GITHUB_TOKEN="ghp_your_token_here"
 export REPO_RADAR_GITHUB_USERNAME="your-github-username"
 ```
@@ -46,33 +74,18 @@ export REPO_RADAR_GITHUB_USERNAME="your-github-username"
 repo-radar scan
 ```
 
-## CLI Commands
+## 📋 CLI Commands
 
-### scan
-
-Run the full discovery pipeline: fetch, dedupe, filter, categorize, analyze, cross-reference, report.
+### `scan` — Full discovery pipeline
 
 ```sh
-repo-radar scan
-repo-radar scan --dry-run       # Preview resolved config without running
-repo-radar scan --backfill      # Re-process previously seen entries
-repo-radar scan --stage filter  # Run only a specific stage
+repo-radar scan                    # Fetch → dedupe → filter → categorize → analyze → report
+repo-radar scan --dry-run          # Preview resolved config without running
+repo-radar scan --backfill         # Re-process previously seen entries
+repo-radar scan --stage filter     # Run only a specific stage
 ```
 
-### report
-
-Generate reports from cached scan results.
-
-```sh
-repo-radar report                    # Markdown (default)
-repo-radar report --format json
-repo-radar report --format console
-repo-radar report --output ./my-reports
-```
-
-### ideas
-
-Extract actionable ideas from scan results. Compares discovered repos against your own to suggest feature adoptions, gap fills, tech adoptions, and pattern transfers.
+### `ideas` — Extract actionable ideas
 
 ```sh
 repo-radar ideas                         # Use latest scan results
@@ -81,67 +94,54 @@ repo-radar ideas --min-relevance 0.5     # Filter by relevance threshold
 repo-radar ideas --print                 # Print ideas to console
 ```
 
-### serve
+### `report` — Generate reports
 
-Start the web dashboard.
+```sh
+repo-radar report                    # Markdown (default)
+repo-radar report --format json
+repo-radar report --format console
+repo-radar report --output ./my-reports
+```
+
+### `serve` — Web dashboard
 
 ```sh
 repo-radar serve                    # Default: 127.0.0.1:3000
 repo-radar serve --port 8080
-repo-radar serve --host 0.0.0.0
 ```
 
-### config
-
-Manage configuration files.
+### `config` — Manage configuration
 
 ```sh
-repo-radar config init    # Create default config
-repo-radar config show    # Print resolved config
+repo-radar config init              # Create default config
+repo-radar config show              # Print resolved config
 ```
 
-### Global flags
+## ⚙️ Configuration
 
-```sh
-repo-radar --config ./custom-config.toml scan   # Override config path
-repo-radar -v scan                                # Debug logging
-repo-radar -vv scan                               # Trace logging
-```
-
-## Configuration
-
-The config file is TOML and lives at `$XDG_CONFIG_HOME/repo-radar/config.toml` by default.
+Config is TOML at `$XDG_CONFIG_HOME/repo-radar/config.toml`:
 
 ```toml
 [general]
 data_dir = "~/.local/share/repo-radar"
 log_level = "info"
-backfill_batch_size = 50
 
 [filter]
 min_stars = 10
 languages = ["Rust", "TypeScript"]
-topics = []
 exclude_forks = true
 exclude_archived = true
 
 [analyzer]
-# repoforge_path = "/path/to/repoforge"
 timeout_secs = 60
 
 [reporter]
 output_dir = "./output"
-format = "markdown"    # markdown | json | console
+format = "markdown"
 
 [cache]
-ttl_secs = 86400       # 24 hours
+ttl_secs = 86400
 
-# Legacy feed syntax
-[[feeds]]
-url = "https://example.com/feed.xml"
-name = "Example Feed"
-
-# Multi-source syntax (preferred)
 [[sources]]
 type = "rss"
 url = "https://example.com/feed.xml"
@@ -150,7 +150,7 @@ name = "Example Feed"
 [[sources]]
 type = "github_trending"
 language = "Rust"
-since = "daily"         # daily | weekly | monthly
+since = "daily"
 
 [[sources]]
 type = "hackernews"
@@ -162,60 +162,44 @@ subreddits = ["rust", "programming"]
 limit = 25
 ```
 
-### Environment variables
+### Environment Variables
 
 | Variable | Purpose |
 |---|---|
-| `REPO_RADAR_GITHUB_TOKEN` | GitHub API token for metadata filtering and cross-reference |
-| `REPO_RADAR_GITHUB_USERNAME` | Your GitHub username for cross-referencing your repos |
-| `REPO_RADAR_DASHBOARD_TOKEN` | Bearer token to protect the web dashboard |
+| `REPO_RADAR_GITHUB_TOKEN` | GitHub API token |
+| `REPO_RADAR_GITHUB_USERNAME` | Your GitHub username for cross-reference |
+| `REPO_RADAR_DASHBOARD_TOKEN` | Bearer token for dashboard auth (optional) |
 | `REPO_RADAR_LLM_API_KEY` | API key for LLM-based analysis (optional) |
 
-## Source Types
+## 🔄 Pipeline
+
+```
+Fetch → Dedupe → Filter → Categorize → Analyze → Cross-reference → Report
+```
+
+Each stage is trait-based with Noop implementations for testing and incremental development.
+
+## 🏛️ Architecture
+
+Hexagonal (ports & adapters) design:
+
+| Directory | Role |
+|-----------|------|
+| `domain/` | Core traits (`Source`, `Filter`, `Categorizer`, `Analyzer`, `CrossRef`, `Reporter`) and models |
+| `adapters/` | Concrete implementations (RSS, GitHub, HackerNews, Reddit, dashboard, reporters) |
+| `infra/` | Caching, seen-store, scan persistence, error types |
+| `pipeline.rs` | Orchestrates the discovery pipeline |
+| `config.rs` | TOML config loading and validation |
+
+## 📡 Source Types
 
 | Source | Description | Config key |
-|---|---|---|
-| RSS/Atom | Any feed that links to GitHub repositories | `type = "rss"` |
-| GitHub Trending | Scrapes trending repos by language and time period | `type = "github_trending"` |
+|--------|-------------|------------|
+| RSS/Atom | Any feed linking to GitHub repos | `type = "rss"` |
+| GitHub Trending | Trending repos by language & period | `type = "github_trending"` |
 | HackerNews | "Show HN" stories with GitHub links | `type = "hackernews"` |
-| Reddit | Posts from specified subreddits containing GitHub links | `type = "reddit"` |
+| Reddit | Subreddit posts containing GitHub links | `type = "reddit"` |
 
-## Pipeline
-
-The scan pipeline runs in sequence:
-
-1. **Fetch** -- Pull entries from all configured sources
-2. **Dedupe** -- Skip previously seen repositories
-3. **Filter** -- Apply GitHub metadata criteria (stars, language, forks, archived)
-4. **Categorize** -- Assign categories based on keywords and topics
-5. **Analyze** -- Extract summaries, features, and tech stack
-6. **Cross-reference** -- Match discoveries against your own repositories
-7. **Report** -- Output results in the configured format
-
-## Dashboard
-
-The `serve` command starts a web dashboard built with Axum, HTMX, Askama templates, and Tailwind CSS. It provides:
-
-- Overview of scan results with category breakdown and charts
-- Trigger scans from the browser with real-time SSE progress
-- Compare individual repos against your own
-- Browse historical scan reports
-- Config viewer
-
-Set `REPO_RADAR_DASHBOARD_TOKEN` to require bearer token authentication. Without it, the dashboard is open but only binds to localhost.
-
-## Architecture
-
-repo-radar follows hexagonal (ports and adapters) architecture:
-
-- `domain/` -- Core traits (`Source`, `Filter`, `Categorizer`, `Analyzer`, `CrossRef`, `Reporter`) and models
-- `adapters/` -- Concrete implementations for each port (RSS, GitHub, HackerNews, Reddit, web dashboard, reporters)
-- `infra/` -- Infrastructure concerns (caching, seen-store, scan persistence, error types)
-- `pipeline.rs` -- Orchestrates the full discovery pipeline
-- `config.rs` -- TOML configuration loading and validation
-
-All pipeline stages are trait-based with Noop implementations for testing and incremental development.
-
-## License
+## 📄 License
 
 MIT
