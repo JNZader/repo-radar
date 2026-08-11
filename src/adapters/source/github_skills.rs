@@ -266,7 +266,7 @@ pub fn rank_trending_skills(entries: &[FeedEntry]) -> Vec<TrendingSkill> {
         .collect();
 
     // Sort by stars descending (higher stars = more trending)
-    skills.sort_by(|a, b| b.stars.cmp(&a.stars));
+    skills.sort_by_key(|b| std::cmp::Reverse(b.stars));
     skills
 }
 

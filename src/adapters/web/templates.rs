@@ -34,7 +34,7 @@ impl DashboardStats {
             }
         }
         let mut top_languages: Vec<(String, usize)> = lang_counts.into_iter().collect();
-        top_languages.sort_by(|a, b| b.1.cmp(&a.1));
+        top_languages.sort_by_key(|b| std::cmp::Reverse(b.1));
         top_languages.truncate(5);
 
         // Build relevance buckets: [0-20%, 20-40%, 40-60%, 60-80%, 80-100%]
