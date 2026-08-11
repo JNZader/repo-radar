@@ -552,15 +552,13 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
         if let Ok(output) = std::process::Command::new("gh")
             .args(["auth", "token"])
             .output()
-        {
-            if output.status.success() {
+            && output.status.success() {
                 let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !token.is_empty() {
                     tracing::debug!("GitHub token resolved from gh CLI");
                     config.general.github_token = Some(token);
                 }
             }
-        }
     }
     if let Ok(key) = std::env::var("REPO_RADAR_LLM_API_KEY") {
         config.analyzer.llm_api_key = Some(key);
@@ -572,15 +570,13 @@ pub fn load_config(path: Option<&Path>) -> Result<AppConfig, PipelineError> {
         if let Ok(output) = std::process::Command::new("gh")
             .args(["api", "user", "--jq", ".login"])
             .output()
-        {
-            if output.status.success() {
+            && output.status.success() {
                 let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !username.is_empty() {
                     tracing::debug!("GitHub username resolved from gh CLI: {username}");
                     config.crossref.github_username = Some(username);
                 }
             }
-        }
     }
     if let Ok(dashboard_token) = std::env::var("REPO_RADAR_DASHBOARD_TOKEN") {
         config.general.dashboard_token = Some(dashboard_token);

@@ -287,7 +287,7 @@ impl GithubReadmeFetcher {
         })?;
 
         // The `content` field from GitHub has newlines embedded in the base64.
-        let cleaned = readme.content.replace('\n', "").replace('\r', "");
+        let cleaned = readme.content.replace(['\n', '\r'], "");
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(cleaned.as_bytes())
             .map_err(|e| KbError::LlmRequest {
@@ -313,11 +313,10 @@ fn build_context_string(meta: &RepoMetadata, readme: Option<&str>) -> String {
 
     parts.push(format!("Repository: {}/{}", meta.owner.login, meta.name));
 
-    if let Some(desc) = &meta.description {
-        if !desc.is_empty() {
+    if let Some(desc) = &meta.description
+        && !desc.is_empty() {
             parts.push(format!("Description: {desc}"));
         }
-    }
 
     if !meta.topics.is_empty() {
         parts.push(format!("Topics: {}", meta.topics.join(", ")));
@@ -329,11 +328,10 @@ fn build_context_string(meta: &RepoMetadata, readme: Option<&str>) -> String {
 
     parts.push(format!("Stars: {}", meta.stargazers_count));
 
-    if let Some(readme_text) = readme {
-        if !readme_text.trim().is_empty() {
+    if let Some(readme_text) = readme
+        && !readme_text.trim().is_empty() {
             parts.push(format!("\n--- README ---\n{readme_text}"));
         }
-    }
 
     parts.join("\n")
 }

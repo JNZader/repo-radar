@@ -103,8 +103,8 @@ impl RepoforgeAnalyzer {
                 reason: e.to_string(),
             })?;
         let markdown = markdown.as_str();
-        let tech_stack = parse_tech_stack(&markdown);
-        let key_features = parse_key_definitions(&markdown);
+        let tech_stack = parse_tech_stack(markdown);
+        let key_features = parse_key_definitions(markdown);
 
         // Use the candidate's description as summary (HTML stripped for readability).
         let summary = candidate
@@ -224,21 +224,19 @@ fn parse_key_definitions(markdown: &str) -> Vec<String> {
             }
         }
         // Try bold: **name**
-        if let Some(rest) = item.strip_prefix("**") {
-            if let Some(end) = rest.find("**") {
+        if let Some(rest) = item.strip_prefix("**")
+            && let Some(end) = rest.find("**") {
                 let name = &rest[..end];
                 if !name.is_empty() {
                     results.push(name.to_string());
                     continue;
                 }
             }
-        }
         // Fallback: first word
-        if let Some(word) = item.split_whitespace().next() {
-            if !word.is_empty() {
+        if let Some(word) = item.split_whitespace().next()
+            && !word.is_empty() {
                 results.push(word.to_string());
             }
-        }
     }
 
     results

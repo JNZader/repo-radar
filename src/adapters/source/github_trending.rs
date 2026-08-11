@@ -101,11 +101,10 @@ fn parse_trending_html(html: &str, _language: Option<&str>) -> Vec<FeedEntry> {
             rest
         };
 
-        if let Some(entry) = extract_repo_from_article(chunk) {
-            if !entries.iter().any(|e: &FeedEntry| e.repo_url == entry.repo_url) {
+        if let Some(entry) = extract_repo_from_article(chunk)
+            && !entries.iter().any(|e: &FeedEntry| e.repo_url == entry.repo_url) {
                 entries.push(entry);
             }
-        }
 
         // Advance past the opening <article tag
         search = &rest[1..];

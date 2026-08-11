@@ -262,7 +262,7 @@ mod tests {
             &["a".into(), "b".into(), "c".into()],
             &own_repos,
         );
-        assert!(score >= 0.0 && score <= 1.0, "score out of range: {score}");
+        assert!((0.0..=1.0).contains(&score), "score out of range: {score}");
     }
 
     #[test]

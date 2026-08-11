@@ -848,11 +848,10 @@ async fn handle_compare(
     println!("{markdown}");
 
     if let Some(out_path) = output {
-        if let Some(parent) = out_path.parent() {
-            if !parent.as_os_str().is_empty() {
+        if let Some(parent) = out_path.parent()
+            && !parent.as_os_str().is_empty() {
                 tokio::fs::create_dir_all(parent).await.into_diagnostic()?;
             }
-        }
         tokio::fs::write(out_path, &markdown)
             .await
             .into_diagnostic()?;
