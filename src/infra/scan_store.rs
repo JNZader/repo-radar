@@ -116,7 +116,7 @@ impl ScanResultStore {
             .collect();
 
         // Newest first
-        metas.sort_by(|a, b| b.scanned_at.cmp(&a.scanned_at));
+        metas.sort_by_key(|b| std::cmp::Reverse(b.scanned_at));
         Ok(metas)
     }
 

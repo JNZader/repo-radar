@@ -285,7 +285,7 @@ fn list_reports(output_dir: &PathBuf) -> Vec<ReportEntry> {
         .collect();
 
     // Sort by modification date descending (newest first)
-    reports.sort_by(|a, b| b.0.cmp(&a.0));
+    reports.sort_by_key(|b| std::cmp::Reverse(b.0));
     reports.into_iter().map(|(_, entry)| entry).collect()
 }
 

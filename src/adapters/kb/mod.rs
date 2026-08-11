@@ -22,29 +22,29 @@ use std::future::Future;
 pub struct NoopKb;
 
 impl KnowledgeBase for NoopKb {
-    fn upsert_repo(
+    async fn upsert_repo(
         &self,
         _candidate: &RepoCandidate,
         _analysis: KbAnalysis,
-    ) -> impl Future<Output = Result<(), KbError>> + Send {
-        async { Ok(()) }
+    ) -> Result<(), KbError> {
+        Ok(())
     }
 
-    fn needs_analysis(
+    async fn needs_analysis(
         &self,
         _owner: &str,
         _repo_name: &str,
         _pushed_at: Option<DateTime<Utc>>,
-    ) -> impl Future<Output = Result<bool, KbError>> + Send {
-        async { Ok(true) }
+    ) -> Result<bool, KbError> {
+        Ok(true)
     }
 
-    fn search(
+    async fn search(
         &self,
         _query: &str,
         _limit: usize,
-    ) -> impl Future<Output = Result<Vec<KbSearchResult>, KbError>> + Send {
-        async { Ok(vec![]) }
+    ) -> Result<Vec<KbSearchResult>, KbError> {
+        Ok(vec![])
     }
 }
 

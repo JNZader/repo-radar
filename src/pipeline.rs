@@ -544,16 +544,16 @@ mod tests {
 
     struct FailingSource;
     impl Source for FailingSource {
-        fn fetch(&self) -> impl std::future::Future<Output = Result<Vec<FeedEntry>, SourceError>> + Send {
-            async { Err(SourceError::ParseFailed("source boom".into())) }
+        async fn fetch(&self) -> Result<Vec<FeedEntry>, SourceError> {
+            Err(SourceError::ParseFailed("source boom".into()))
         }
         fn name(&self) -> &'static str { "failing-source" }
     }
 
     struct FailingFilter;
     impl Filter for FailingFilter {
-        fn filter(&self, _entries: Vec<FeedEntry>) -> impl std::future::Future<Output = Result<Vec<RepoCandidate>, FilterError>> + Send {
-            async { Err(FilterError::GitHubApi("filter boom".into())) }
+        async fn filter(&self, _entries: Vec<FeedEntry>) -> Result<Vec<RepoCandidate>, FilterError> {
+            Err(FilterError::GitHubApi("filter boom".into()))
         }
     }
 

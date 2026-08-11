@@ -50,11 +50,11 @@ pub async fn diff_html(
 ) -> Response {
     let (meta_a, results_a) = match load_scan(&state, &id_a) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let (meta_b, results_b) = match load_scan(&state, &id_b) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     let diff = compute_diff(meta_a, meta_b, &results_a, &results_b);
@@ -84,11 +84,11 @@ pub async fn diff_api(
 ) -> Response {
     let (meta_a, results_a) = match load_scan(&state, &id_a) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let (meta_b, results_b) = match load_scan(&state, &id_b) {
         Ok(pair) => pair,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     let diff = compute_diff(meta_a, meta_b, &results_a, &results_b);
@@ -105,7 +105,7 @@ fn load_scan(
         crate::infra::scan_store::ScanMeta,
         Vec<crate::domain::model::CrossRefResult>,
     ),
-    Response,
+    Box<Response>,
 > {
     // Get scan metadata by listing all scans and finding the matching ID
     let scans = state.scan_store.list().map_err(|e| {
@@ -117,7 +117,7 @@ fn load_scan(
         let html = tmpl
             .render()
             .unwrap_or_else(|_| "<h1>500 Internal Server Error</h1>".to_string());
-        (StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response()
+        Box::new((StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response())
     })?;
 
     let meta = scans
@@ -132,7 +132,7 @@ fn load_scan(
             let html = tmpl
                 .render()
                 .unwrap_or_else(|_| "<h1>404 Not Found</h1>".to_string());
-            (StatusCode::NOT_FOUND, Html(html)).into_response()
+            Box::new((StatusCode::NOT_FOUND, Html(html)).into_response())
         })?;
 
     let results = state.scan_store.load(id).map_err(|e| {
@@ -144,7 +144,7 @@ fn load_scan(
         let html = tmpl
             .render()
             .unwrap_or_else(|_| "<h1>500 Internal Server Error</h1>".to_string());
-        (StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response()
+        Box::new((StatusCode::INTERNAL_SERVER_ERROR, Html(html)).into_response())
     })?;
 
     Ok((meta, results))
